@@ -1,0 +1,133 @@
+<div id="vcrop">
+	<template v-if="!duplicates || duplicates.length">
+		<div class="duplicates">
+			<div v-for="dup in duplicates">
+				<img :src="`${host}/${dup.match}`" />
+				<span>{{dup.similarity}}% </span>
+				<span>{{dup.recommendation}}</span>
+			</div>
+		</div>
+		<div>
+			<h3>Duplicates</h3>
+			<button class="btn" @click="duplicates=[]">Dismiss</button>
+		</div>
+	</template>
+	<template v-else>
+		<div>
+			<h3>Target Size</h3>
+			<select v-model="resolution">
+				<option
+					v-for="res in resolutions"
+					:key="res.width+'x'+res.height"
+					:value="res"
+					>{{res.width}}x{{res.height}}</option
+				>
+			</select>
+		</div>
+		<div>
+			<h3>Remove boring borders</h3>
+			<label
+				><input type="checkbox" v-model="movingCrop" />Crop
+				gradients</label
+			>
+			<button class="btn" @click="autoCrop">Trim</button>
+			<button class="btn" @click="restoreOriginal">
+				Restore Original
+			</button>
+		</div>
+		<div>
+			<h3>
+				Padding colour
+			</h3>
+			<input
+				style="display: none;"
+				ref="paddingColor"
+				type="color"
+				v-model="paddingColor"
+			/>
+			<button
+				class="padding-color"
+				:style="{background: paddingColor || 'black'}"
+				@click="$refs.paddingColor.click()"
+			></button>
+			<button
+				class="padding-color transparent"
+				@click="paddingColor=null"
+			></button>
+		</div>
+		<div>
+			<h3>
+				Crop
+				<svg
+					v-if="saving"
+					class="lds-typing"
+					width="18px"
+					height="18px"
+					xmlns="http://www.w3.org/2000/svg"
+					xmlns:xlink="http://www.w3.org/1999/xlink"
+					viewBox="0 0 100 100"
+					preserveAspectRatio="xMidYMid"
+					style="background: none;"
+				>
+					<circle cx="10" cy="48.4263" r="10" fill="#e15b64">
+						<animate
+							attributeName="cy"
+							calcMode="spline"
+							keySplines="0 0.5 0.5 1;0.5 0 1 0.5;0.5 0.5 0.5 0.5"
+							repeatCount="indefinite"
+							values="62.5;37.5;62.5;62.5"
+							keyTimes="0;0.25;0.5;1"
+							dur="1s"
+							begin="-0.5s"
+						></animate>
+					</circle>
+					<circle cx="35" cy="62.5" r="10" fill="#f47e60">
+						<animate
+							attributeName="cy"
+							calcMode="spline"
+							keySplines="0 0.5 0.5 1;0.5 0 1 0.5;0.5 0.5 0.5 0.5"
+							repeatCount="indefinite"
+							values="62.5;37.5;62.5;62.5"
+							keyTimes="0;0.25;0.5;1"
+							dur="1s"
+							begin="-0.375s"
+						></animate>
+					</circle>
+					<circle cx="60" cy="62.5" r="10" fill="#f8b26a">
+						<animate
+							attributeName="cy"
+							calcMode="spline"
+							keySplines="0 0.5 0.5 1;0.5 0 1 0.5;0.5 0.5 0.5 0.5"
+							repeatCount="indefinite"
+							values="62.5;37.5;62.5;62.5"
+							keyTimes="0;0.25;0.5;1"
+							dur="1s"
+							begin="-0.25s"
+						></animate>
+					</circle>
+					<circle cx="85" cy="62.5" r="10" fill="#abbd81">
+						<animate
+							attributeName="cy"
+							calcMode="spline"
+							keySplines="0 0.5 0.5 1;0.5 0 1 0.5;0.5 0.5 0.5 0.5"
+							repeatCount="indefinite"
+							values="62.5;37.5;62.5;62.5"
+							keyTimes="0;0.25;0.5;1"
+							dur="1s"
+							begin="-0.125s"
+						></animate>
+					</circle>
+				</svg>
+			</h3>
+			<button class="btn" @click="save({crop: true, edit: false})">
+				<i>&#x2702;</i> Crop
+			</button>
+			<button class="btn" @click="save({crop: true, edit: true})">
+				<i>&#x1F5BC;</i> Crop & Edit
+			</button>
+			<button class="btn" @click="save({crop: false, edit: true})">
+				<i>&#x1F3A8;</i> Edit
+			</button>
+		</div>
+	</template>
+</div>

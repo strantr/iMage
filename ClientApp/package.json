@@ -1,0 +1,25 @@
+{
+	"name": "image",
+	"version": "1.0.0",
+	"description": "",
+	"main": "index.js",
+	"scripts": {
+		"watch:index": "npm run build:index -- -w",
+		"watch:plugins": "npm run build:plugins -- -w",
+		"watch:style": "npm run build:style -- --watch",
+		"start": "concurrently \"npm:watch:index\" \"npm:watch:plugins\" \"npm:watch:style\"",
+		"start:http": "http-server -s",
+		"build": "concurrently \"npm:build:index\" \"npm:build:plugins\" \"npm:build:style\"",
+		"build:index": "tsc -P tsconfig.json",
+		"build:plugins": "node build.js",
+		"build:style": "sass --no-source-map src/style.scss dist/style.css"
+	},
+	"author": "",
+	"license": "ISC",
+	"devDependencies": {
+		"concurrently": "^5.2.0",
+		"cropperjs": "^1.5.6",
+		"sass": "^1.26.5",
+		"vue": "^2.6.11"
+	}
+}
