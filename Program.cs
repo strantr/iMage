@@ -29,7 +29,7 @@ namespace iMage
 
         private static void Run(string[] args)
         {
-            new Wallpaper.Slideshow();
+            var slideshow = new Wallpaper.Slideshow();
 #if DEBUG
             CreateHostBuilder(args).Build().Run();
 #else
@@ -41,6 +41,7 @@ namespace iMage
                 Text = "iMage",
                 ContextMenuStrip = new ContextMenuStrip(),
             };
+            notification.ContextMenuStrip.Items.Add("Next Wallpaper", null, (s, e) => slideshow.Next(true));
             notification.ContextMenuStrip.Items.Add("Exit", null, (s, e) => Environment.Exit(0));
             notification.Visible = true;
             Application.EnableVisualStyles();

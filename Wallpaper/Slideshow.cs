@@ -11,48 +11,81 @@ namespace iMage.Wallpaper
     public class Slideshow : IDisposable
     {
         private readonly Timer timer;
+        private readonly IDesktopWallpaper wallpaper = (IDesktopWallpaper)new DesktopWallpaperClass();
+        private readonly Dictionary<Size, Queue<string>> wallpaperQueue = new Dictionary<Size, Queue<string>>();
+        private readonly HashSet<string> known = new HashSet<string>();
+        private readonly int interval = 1 * 60 * 1000;
+        private readonly Random random = new Random();
+        private uint screenIndex = 0;
 
-        public Slideshow()
+        public void Next(bool manuallyTriggered = false)
         {
-            var wallpaper = (IDesktopWallpaper)(new DesktopWallpaperClass());
-            var wallpaperQueue = new Dictionary<Size, Queue<string>>();
-            var known = new HashSet<string>();
-            timer = new Timer(_ =>
+            foreach (var img in Directory.GetFiles(Paths.Processed, "*.png").OrderBy(_ => random.Next()))
             {
-                foreach (var img in Directory.GetFiles(Paths.Processed))
+                if (known.Add(img))
                 {
-                    if (known.Add(img))
+                    try
                     {
                         // New image
                         var pos = img.LastIndexOf('_');
                         var sz = img.Substring(pos + 1, img.Length - 5 - pos).Split('x');
-                        var res = new Size(int.Parse(sz[0]), int.Parse(sz[1]));
-                        if (wallpaperQueue.ContainsKey(res))
+                        var resolution = new Size(int.Parse(sz[0]), int.Parse(sz[1]));
+                        if (wallpaperQueue.ContainsKey(resolution))
                         {
-                            wallpaperQueue[res].Enqueue(img);
+                            wallpaperQueue[resolution].Enqueue(img);
                         }
                         else
                         {
-                            wallpaperQueue.Add(res, new Queue<string>(new[] { img }));
+                            wallpaperQueue.Add(resolution, new Queue<string>(new[] { img }));
                         }
                     }
-                }
-
-                for (uint i = 0; i < wallpaper.GetMonitorDevicePathCount(); i++)
-                {
-                    var id = wallpaper.GetMonitorDevicePathAt(i);
-                    var bounds = wallpaper.GetMonitorRECT(id);
-                    var res = new Size(bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
-                    if (wallpaperQueue.ContainsKey(res))
+                    catch (Exception)
                     {
-                        var queue = wallpaperQueue[res];
-                        var img = queue.Dequeue();
-                        queue.Enqueue(img);
-                        wallpaper.SetWallpaper(wallpaper.GetMonitorDevicePathAt(i), img);
-                        wallpaper.SetPosition(DesktopWallpaperPosition.Fill);
+                        // Ignore invalid files
+                        known.Remove(img);
                     }
                 }
-            }, null, 0, 60000);
+            }
+
+            var screenCount = wallpaper.GetMonitorDevicePathCount();
+            if (screenIndex >= screenCount)
+            {
+                screenIndex = 0;
+            }
+            var id = wallpaper.GetMonitorDevicePathAt(screenIndex);
+            var bounds = wallpaper.GetMonitorRECT(id);
+            var res = new Size(bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
+            if (wallpaperQueue.ContainsKey(res))
+            {
+                var queue = wallpaperQueue[res];
+                string img = null;
+                while (img == null && queue.Count > 0)
+                {
+                    img = queue.Dequeue();
+                    // Remove deleted files
+                    if (!File.Exists(img))
+                    {
+                        known.Remove(img);
+                        img = null;
+                    }
+                }
+                queue.Enqueue(img);
+                wallpaper.SetWallpaper(wallpaper.GetMonitorDevicePathAt(screenIndex), img);
+                wallpaper.SetPosition(DesktopWallpaperPosition.Fill);
+                ++screenIndex;
+            }
+            if (manuallyTriggered)
+            {
+                timer.Change(interval, interval);
+            }
+        }
+
+        public Slideshow()
+        {
+            timer = new Timer(_ =>
+            {
+                Next();
+            }, null, 0, interval);
         }
 
         public void Dispose() => this.timer.Dispose();
