@@ -70,15 +70,29 @@ GM.entryPoint("artstation ✨", (log) => {
 				}
 			});
 
+			const isInViewport = function (elem: HTMLElement) {
+				var bounding = elem.getBoundingClientRect();
+				return (
+					bounding.top >= 0 &&
+					bounding.left >= 0 &&
+					bounding.bottom <=
+						(window.innerHeight ||
+							document.documentElement.clientHeight) &&
+					bounding.right <=
+						(window.innerWidth ||
+							document.documentElement.clientWidth)
+				);
+			};
+
 			// Handle context menu click
 			window.addEventListener(
 				"iMage:hide",
-				async (e: Event & { menuSource?: Element }) => {
-					if (e.menuSource) {
-						let target: Element | null = e.menuSource.closest(
+				async (e: Event & { detail?: HTMLImageElement }) => {
+					if (e.detail) {
+						let target: Element | null = e.detail.closest(
 							".project"
 						)!;
-						const next = target.nextElementSibling;
+						const next: HTMLElement = target.nextElementSibling as HTMLElement;
 						const hide: number[] = [];
 						do {
 							const id = +target
@@ -89,11 +103,10 @@ GM.entryPoint("artstation ✨", (log) => {
 						} while ((target = target.previousElementSibling));
 						log("Hiding", hide.length, "projects");
 						await this.storeView(hide);
-						if (
-							next &&
-							(next as HTMLElement).classList.contains("project")
-						) {
-							next.scrollIntoView();
+						if (next && next.classList.contains("project")) {
+							if (!isInViewport(next)) {
+								next.scrollIntoView();
+							}
 						}
 					}
 				}
