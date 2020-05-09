@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 
 namespace iMage
@@ -14,7 +15,7 @@ namespace iMage
 
             if (scale == 1)
             {
-                File.Copy(inputPath, outputPath);
+                File.Copy(inputPath, outputPath, true);
                 return;
             }
 
@@ -38,7 +39,7 @@ namespace iMage
         public static void Resize(string inputPath, string outputPath, int width, int height)
         {
             double scale;
-            using (var bmp = System.Drawing.Image.FromFile(inputPath))
+            using (var bmp = Image.FromFile(inputPath))
             {
                 var w = bmp.Width;
                 var h = bmp.Height;

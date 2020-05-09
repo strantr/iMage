@@ -24,3 +24,4 @@ yarn-error.log*
 *.sw?
 .vs
 *.csproj.user
+/error.log

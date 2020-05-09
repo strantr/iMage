@@ -6,7 +6,6 @@ using System;
 using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Threading;
 using System.Windows.Forms;
 
 namespace iMage
@@ -16,42 +15,36 @@ namespace iMage
         [STAThread]
         public static void Main(string[] args)
         {
+
             try
             {
-                var t = new Thread(delegate ()
-                {
-                    try
-                    {
-                        CreateHostBuilder(args).Build().Run();
-                    }
-                    catch (Exception ex)
-                    {
-                        File.AppendAllText("error.log", "[" + DateTime.Now.ToString() + "] " + ex.ToString());
-                        Environment.Exit(-2);
-                    }
-                })
-                {
-                    IsBackground = true
-                };
-                t.Start();
-
-                var notification = new NotifyIcon
-                {
-                    Icon = new Icon(Path.Combine(Paths.Root, "ico.ico")),
-                    Text = "iMage",
-                    ContextMenuStrip = new ContextMenuStrip(),
-                };
-                notification.ContextMenuStrip.Items.Add("Exit", null, (s, e) => Environment.Exit(0));
-                notification.Visible = true;
-                Application.EnableVisualStyles();
-                Application.Run();
-
+                Run(args);
             }
             catch (Exception exx)
             {
                 File.AppendAllText("error.log", "[" + DateTime.Now.ToString() + "] " + exx.ToString());
                 Environment.Exit(-1);
             }
+        }
+
+        private static void Run(string[] args)
+        {
+
+#if DEBUG
+            CreateHostBuilder(args).Build().Run();
+#else
+            _ = CreateHostBuilder(args).Build().RunAsync();
+#endif
+            var notification = new NotifyIcon
+            {
+                Icon = new Icon(Path.Combine(Paths.Root, "ico.ico")),
+                Text = "iMage",
+                ContextMenuStrip = new ContextMenuStrip(),
+            };
+            notification.ContextMenuStrip.Items.Add("Exit", null, (s, e) => Environment.Exit(0));
+            notification.Visible = true;
+            Application.EnableVisualStyles();
+            Application.Run();
         }
 
         public static IHostBuilder CreateHostBuilder(string[] args) =>

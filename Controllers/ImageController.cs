@@ -1,6 +1,7 @@
 ﻿using iMage.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Win32;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -15,6 +16,34 @@ namespace iMage.Controllers
     [ApiController]
     public class ImageController : ControllerBase
     {
+        private static Bitmap ResizeImage(Bitmap source, int targetWidth, int targetHeight)
+        {
+            // Upscaled too large, resize back down
+            var maxWidth = Math.Min(targetWidth, source.Width);
+            var maxHeight = Math.Min(targetHeight, source.Height);
+
+            var rnd = Math.Max(maxWidth / (decimal)source.Width, maxHeight / (decimal)source.Height);
+            var w = (int)Math.Round(source.Width * rnd);
+            var h = (int)Math.Round(source.Height * rnd);
+
+            var temp = new Bitmap(w, h);
+            using (var g = Graphics.FromImage(temp))
+            {
+                g.HighQuality().DrawImage(source, 0, 0, w, h);
+            }
+            return temp;
+        }
+
+        private static Bitmap Crop(Bitmap image, int targetWidth, int targetHeight, int x, int y)
+        {
+            var cropped = new Bitmap(targetWidth, targetHeight);
+            using (var g = Graphics.FromImage(cropped))
+            {
+                g.HighQuality().DrawImage(image, -x, -y);
+            }
+            return cropped;
+        }
+
         [HttpPost]
         [Route("check")]
         public IEnumerable<ImageMatch> Check(ImageDataRequest req)
@@ -95,24 +124,46 @@ namespace iMage.Controllers
                 WriteIndented = true
             }));
 
-            // Upscale image using w2x
             var processedPath = Path.Combine(Paths.Processed, $"{name}_{save.Target.Width}x{save.Target.Height}.png");
             if (!save.Bounds.IsEmpty)
             {
-                var scale = save.Target.Width / (double)save.Bounds.Width;
-                Waifu2x.Resize(sourcePath, processedPath, scale);
+                var scaleX = save.Target.Width / (double)save.Bounds.Width;
+                var scaleY = save.Target.Height / (double)save.Bounds.Height;
 
-                // Crop
+                var wx2scale = Math.Max(scaleX, scaleY);
+                var wx2w = sourceW * wx2scale;
+                var wx2h = sourceH * wx2scale;
+
+                // Upscale image using w2x
+                Waifu2x.Resize(sourcePath, processedPath, wx2scale);
+
+                Bitmap enlarged = null;
                 var bytes = System.IO.File.ReadAllBytes(processedPath);
-                using var ms = new MemoryStream(bytes);
-                using var enlarged = Image.FromStream(ms);
-                scale = enlarged.Width / (double)sourceW;
-                using var cropped = new Bitmap(save.Target.Width, save.Target.Height);
-                using (var g = Graphics.FromImage(cropped))
+                try
                 {
-                    g.HighQuality().DrawImage(enlarged, (int)(save.Bounds.X * -scale), (int)(save.Bounds.Y * -scale));
+                    using (var ms = new MemoryStream(bytes))
+                    {
+                        enlarged = Image.FromStream(ms) as Bitmap;
+
+                        // wx2 scaling oversized it, shrink it back down
+                        if (enlarged.Width != (int)wx2w)
+                        {
+                            using var tmp = enlarged;
+                            enlarged = ResizeImage(enlarged, (int)wx2w, (int)wx2h);
+                        }
+                    }
+
+                    // Crop!
+                    using var cropped = Crop(enlarged, save.Target.Width, save.Target.Height, (int)(save.Bounds.X * wx2scale), (int)(save.Bounds.Y * wx2scale));
+                    cropped.Save(processedPath);
                 }
-                cropped.Save(processedPath);
+                finally
+                {
+                    if (enlarged != null)
+                    {
+                        enlarged.Dispose();
+                    }
+                }
             }
             else
             {
