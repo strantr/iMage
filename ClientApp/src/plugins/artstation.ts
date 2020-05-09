@@ -192,25 +192,35 @@ GM.entryPoint("artstation ✨", (log) => {
 		}
 
 		private async navigated(location: string, first: boolean) {
+			await this.ready;
+
 			if (location.includes("/artwork/")) {
 				this.handleArtworkPage(first);
 			} else {
 				this.projectLoaded = this.project = undefined;
-				const els = [
-					...document.querySelectorAll(`a[artstation-open-project]`),
-				];
-				for (const el of els) {
-					const id = +el.getAttribute("artstation-open-project")!;
-					if (await this.hasViewed(id)) {
-						el.parentElement!.style.filter = "sepia(1) blur(2px)";
-					}
+			}
+
+			const els = [
+				...document.querySelectorAll(`a[artstation-open-project]`),
+			];
+
+			log("Found", els.length, "projects on page");
+			for (const el of els) {
+				const id = +el.getAttribute("artstation-open-project")!;
+				if (await this.hasViewed(id)) {
+					el.parentElement!.style.filter = "sepia(1) blur(2px)";
 				}
+
+				(el as HTMLElement).addEventListener("mouseup", (e) => {
+					if (e.button === 0 || e.button === 1) {
+						this.storeView(id);
+					}
+				});
 			}
 		}
 
 		private async handleArtworkPage(first: boolean) {
 			if (first) {
-				await this.ready;
 				const dataScript = [
 					...document.querySelectorAll("script"),
 				].find((s) =>
@@ -311,7 +321,7 @@ GM.entryPoint("artstation ✨", (log) => {
 				}
 			}
 			if (hidden) {
-				log(`Hidden ${hidden} via broadcast`);
+				log(`Hidden ${hidden} projects`);
 			}
 		}
 
