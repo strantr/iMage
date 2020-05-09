@@ -29,7 +29,7 @@ namespace iMage
 
         private static void Run(string[] args)
         {
-
+            new Wallpaper.Slideshow();
 #if DEBUG
             CreateHostBuilder(args).Build().Run();
 #else
