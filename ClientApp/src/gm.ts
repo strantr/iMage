@@ -232,7 +232,7 @@ declare const unsafeWindow: Window & Record<string, any>;
 	}
 
 	if (GM.metadata.dev) {
-		GM.log("🐵🛠", "Loading dev resources: ", window.location.href);
+		GM.log("🐵🛠", "Loading dev resources: ", GM.metadata.dev.host);
 		if (GM.metadata.dev.watch.requires === true) {
 			if (!GM.metadata.dev.host) {
 				throw new Error("Development host domain must be set");
