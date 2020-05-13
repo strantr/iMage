@@ -41,6 +41,19 @@ GM.entryPoint("artstation ✨", (log) => {
 		constructor() {
 			super(log);
 
+			// Block pointless requests
+			this.on(
+				"xhr:sending",
+				async (xhr) =>
+					!artstation.blocklist.find((b) => xhr.url.includes(b))
+			);
+
+			// Filter viewed projects
+			this.on("xhr:loaded", (x) => this.handleXhr(x));
+
+			// Handle viewing artwork pages
+			this.on("stored", (i) => this.projectsViewed(i as number[]));
+
 			// Add custom CSS
 			const style = document.createElement("style");
 			style.textContent = artstation.css;
@@ -49,6 +62,9 @@ GM.entryPoint("artstation ✨", (log) => {
 			this.ready = new Promise((r) => (resolve = r)).then(() => {
 				log("Page ready");
 				document.body.appendChild(style);
+
+				// Handle viewing artwork pages
+				this.on("navigate", (l, f) => this.navigated(l, f));
 			});
 
 			if (
@@ -111,22 +127,6 @@ GM.entryPoint("artstation ✨", (log) => {
 					}
 				}
 			);
-
-			// Block pointless requests
-			this.on(
-				"xhr:sending",
-				async (xhr) =>
-					!artstation.blocklist.find((b) => xhr.url.includes(b))
-			);
-
-			// Filter viewed projects
-			this.on("xhr:loaded", (x) => this.handleXhr(x));
-
-			// Handle viewing artwork pages
-			this.on("navigate", (l, f) => this.navigated(l, f));
-
-			// Handle viewing artwork pages
-			this.on("stored", (i) => this.projectsViewed(i as number[]));
 		}
 
 		private async handleXhr(xhr: XMLHttpRequest & { url: string }) {
@@ -141,6 +141,8 @@ GM.entryPoint("artstation ✨", (log) => {
 				});
 
 			const isArtPage = window.location.pathname.startsWith("/artwork/");
+			let isMosaic: boolean = false;
+
 			if (isArtPage) {
 				const id = window.location.pathname.split("/").pop()!;
 				if (xhr.url.endsWith("/projects/" + id + ".json")) {
@@ -154,32 +156,44 @@ GM.entryPoint("artstation ✨", (log) => {
 					}
 					return;
 				}
-			} else if (
-				window.location.pathname === "" &&
-				xhr.url.match(/projects.json\?page=\d+&randomize=true/)
-			) {
-				return;
+			} else {
+				isMosaic =
+					window.location.pathname === "/" &&
+					!!xhr.url.match(/projects.json\?page=\d+&randomize=true/);
 			}
 			try {
 				const projects = JSON.parse(xhr.responseText);
 				if (artstation.isProjectResponse(projects)) {
 					const existing = await this.hasViewed(
 						projects.data.map((d) => {
-							d.hide_as_adult = false;
 							return d.id;
 						})
 					);
 					const first = projects.data[0];
 					const fullCount = projects.data.length;
-					projects.data = projects.data.filter(
-						(d) => !existing.has(d.id)
-					);
+					let filtered: number = 0;
+					if (isMosaic) {
+						for (const proj of projects.data) {
+							if ((proj.hide_as_adult = existing.has(proj.id))) {
+								filtered++;
+							}
+						}
+						projects.data.sort(
+							(a, b) => +a.hide_as_adult - +b.hide_as_adult
+						);
+					} else {
+						projects.data = projects.data.filter((d) => {
+							if (existing.has(d.id)) {
+								return false;
+							} else {
+								d.hide_as_adult = false;
+								return true;
+							}
+						});
+						filtered = fullCount - projects.data.length;
+					}
 
-					log(
-						`Filtered ${
-							fullCount - projects.data.length
-						}/${fullCount} projects`
-					);
+					log(`Filtered ${filtered}/${fullCount} projects`);
 
 					if (isArtPage) {
 						if (projects.data.length) {

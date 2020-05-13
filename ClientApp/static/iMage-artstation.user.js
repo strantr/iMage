@@ -8,8 +8,8 @@
 // @match        https://www.artstation.com/*
 // @grant        unsafeWindow
 // @grant        GM.xmlHttpRequest
-// @require      http://localhost:1337/dist/plugins/artstation.js?version=0.1.0
+// @run-at       document-start
+// @require      http://localhost:1337/dist/plugins/artstation.js?version=0.1.2
 ////////////////////////////////////////////////////////////
 // @host         http://localhost:1337
-// @dev          {}
 // ==/UserScript==
