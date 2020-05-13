@@ -42,6 +42,7 @@ function getVCropper(
 				cropper: null as Cropper | null,
 				movingCrop: true,
 				paddingColor: null as string | null,
+				cropperColor: null as string | null,
 				resolution: null as Resolution | null,
 				resolutions: [
 					{ width: 2560, height: 1600 },
@@ -68,6 +69,18 @@ function getVCropper(
 			},
 			paddingColor() {
 				this.updatePaddingColor();
+			},
+			cropperColor(color: string | null) {
+				const modal = document.querySelector(
+					".cropper-modal"
+				) as HTMLDivElement;
+				if (color === null) {
+					modal.style.opacity = "0.5";
+					modal.style.backgroundColor = "#000";
+				} else {
+					modal.style.opacity = "1";
+					modal.style.backgroundColor = color;
+				}
 			},
 			resolution() {
 				if (this.cropper && this.resolution) {

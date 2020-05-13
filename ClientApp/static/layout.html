@@ -57,6 +57,35 @@
 		</div>
 		<div>
 			<h3>
+				Cropper colour
+			</h3>
+			<input
+				style="display: none;"
+				ref="cropperColor"
+				type="color"
+				v-model="cropperColor"
+			/>
+			<button
+				class="padding-color"
+				:style="{background: cropperColor || 'black'}"
+				@click="$refs.cropperColor.click()"
+			></button>
+			<button
+				class="padding-color transparent"
+				@click="cropperColor=null"
+			></button>
+			<button class="padding-color" @click="cropperColor='black'">
+				Black 100%
+			</button>
+			<button
+				class="padding-color"
+				@click="cropperColor='rgba(0,0,0,0.9)'"
+			>
+				Black 90%
+			</button>
+		</div>
+		<div>
+			<h3>
 				Crop
 				<svg
 					v-if="saving"
