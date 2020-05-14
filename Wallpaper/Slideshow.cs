@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -17,6 +18,8 @@ namespace iMage.Wallpaper
         private readonly int interval = 1 * 60 * 1000;
         private readonly Random random = new Random();
         private uint screenIndex = 0;
+
+        public IReadOnlyDictionary<Size, int> Wallpapers => wallpaperQueue.ToImmutableDictionary(k => k.Key, v => v.Value.Count);
 
         public void Next(bool manuallyTriggered = false)
         {
