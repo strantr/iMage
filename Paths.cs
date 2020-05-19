@@ -1,5 +1,7 @@
 ﻿using Microsoft.Extensions.Hosting;
+using Microsoft.Win32;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 
@@ -34,6 +36,7 @@ namespace iMage
                 }
             }
         }
+        public static string Editor => Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths", "Photoshop.exe", @"C:\Program Files\Adobe\Adobe Photoshop 2020\Photoshop.exe").ToString();
 
         static Paths()
         {

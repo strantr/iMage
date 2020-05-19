@@ -172,8 +172,7 @@ namespace iMage.Controllers
 
             if (save.OpenForEdit)
             {
-                var ps = Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths", "Photoshop.exe", @"C:\Program Files\Adobe\Adobe Photoshop 2020\Photoshop.exe").ToString();
-                Process.Start(ps, Path.GetFullPath(processedPath));
+                Process.Start(Paths.Editor, Path.GetFullPath(processedPath));
             }
             return new Dictionary<string, bool> { { "success", true } };
         }

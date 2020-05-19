@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -31,13 +32,9 @@ namespace iMage
         private static void Run(string[] args)
         {
             var slideshow = new Wallpaper.Slideshow();
-#if DEBUG
-            CreateHostBuilder(args).Build().Run();
-#else
             _ = CreateHostBuilder(args).Build().RunAsync();
-#endif
 
-            var sizes = new List<ToolStripItem>();
+            var items = new List<ToolStripItem>();
 
             var notification = new NotifyIcon
             {
@@ -49,36 +46,48 @@ namespace iMage
                 },
             };
 
-            var title = new ToolStripButton("iMage");
-            title.AutoSize = false;
+            var title = new ToolStripButton("iMage")
+            {
+                AutoSize = false
+            };
             title.Font = new Font(title.Font, FontStyle.Bold);
             title.TextAlign = ContentAlignment.MiddleCenter;
             title.ForeColor = Color.DodgerBlue;
 
             notification.ContextMenuStrip.Items.Add(title);
             notification.ContextMenuStrip.Items.Add(new ToolStripSeparator());
-            notification.ContextMenuStrip.Items.Add("Next Wallpaper", null, (s, e) => slideshow.Next(true));
+            notification.ContextMenuStrip.Items.Add("Next Wallpaper", null, (s, e) => slideshow.Next());
             notification.ContextMenuStrip.Items.Add(new ToolStripSeparator());
             notification.ContextMenuStrip.Items.Add("Exit", null, (s, e) => Environment.Exit(0));
             notification.Visible = true;
 
             notification.ContextMenuStrip.Opening += (s, e) =>
             {
-                foreach(var sz in sizes)
+                foreach (var sz in items)
                 {
                     notification.ContextMenuStrip.Items.Remove(sz);
                 }
-                sizes.Clear();
-                foreach(var sz in slideshow.Wallpapers.OrderBy(sz => sz.Key.Width * sz.Key.Height))
+                items.Clear();
+                var screens = Screen.AllScreens.OrderBy(s => s.Bounds.X).ToArray();
+                for (var i = 0; i < screens.Length; i++)
                 {
-                    var item = new ToolStripMenuItem($"{sz.Key.Width}x{sz.Key.Height}: {sz.Value}");
-                    item.Enabled = false;
-                    notification.ContextMenuStrip.Items.Insert(1, item);
-                    sizes.Add(item);
+                    var screen = screens[i];
+                    var count = slideshow.Wallpapers.ContainsKey(screen.Bounds.Size) ? slideshow.Wallpapers[screen.Bounds.Size] : 0;
+                    var item = new ToolStripMenuItem($"Screen {(i + 1)} ({screen.Bounds.Width}x{screen.Bounds.Height}) [{count}]");
+                    item.DropDownItems.Add("Edit current", null, (s, e) =>
+                    {
+                        Process.Start(Paths.Editor, slideshow.Current[screen]);
+                    });
+                    item.DropDownItems.Add("Browse to current", null, (s, e) =>
+                    {
+                        var filePath = Path.GetFullPath(slideshow.Current[screen]);
+                        Process.Start("explorer.exe", $"/select,\"{filePath}\"");
+                    });
+                    notification.ContextMenuStrip.Items.Insert(1 + i, item);
+                    items.Add(item);
                 }
 
                 title.Width = notification.ContextMenuStrip.Width / 2;
-
             };
 
             Application.EnableVisualStyles();
