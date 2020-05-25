@@ -55,19 +55,66 @@ interface GM {
 	addStyle(
 		opts:
 			| {
-					style:
-						| string
-						| Record<string, Record<string, string | number>>;
-			  }
+				style:
+				| string
+				| Record<string, Record<string, string | number>>;
+			}
 			| { resourceName: string }
 	): Promise<void>;
-	entryPoint(id: string, callback: (log: Console["log"]) => void): void;
-	entryPoints: Record<string, (log: Console["log"]) => void>;
+	app(id: string, callback: (log: Console["log"]) => void): void;
 }
 declare const GM: GM;
 declare const unsafeWindow: Window & Record<string, any>;
 
 (() => {
+	async function loadExternal(url: string): Promise<string> {
+		let prev: string | null = null;
+		if (GM.metadata.dev && GM.metadata.dev.log) {
+			GM.log("🐵🛠", `Loading external resource:`, url);
+		}
+		return new Promise<string>(async (r) => {
+			do {
+				const uid = new Date().valueOf();
+				const u = `${url}${url.includes("?") ? "&" : "?"}uid=${uid}`;
+				let resource: string | undefined;
+				try {
+					resource = (
+						await GM.request({
+							url: u,
+							method: "GET",
+						})
+					).responseText;
+				} catch (error) {
+					GM.log("🐵🛠", "Error checking resource:", url);
+					await new Promise((r) => setTimeout(r, 1000));
+					continue;
+				}
+
+				if (prev) {
+					if (prev !== resource) {
+						GM.log("🐵🛠", "Change detected:", url, "Reloading...");
+						window.location.reload();
+					}
+					await new Promise((r) => setTimeout(r, 500));
+				} else {
+					if (GM.metadata.dev && GM.metadata.dev.log) {
+						GM.log("🐵🛠", "Loaded external resource:", url);
+					}
+					r(resource);
+					prev = resource;
+				}
+			} while (true);
+		});
+	}
+
+	async function loadScript(url: string) {
+		eval(await loadExternal(url));
+	}
+
+	async function loadResource(resourceName: string, url: string) {
+		GM.getResourceObj(resourceName).content = await loadExternal(url);
+	}
+
 	// Parse metadata
 	GM.metadata = GM.info.scriptMetaStr.split("\n").reduce((p, n) => {
 		const m = n.match(/\/\/\s*@([^\s]+)\s+(.*)/);
@@ -167,110 +214,58 @@ declare const unsafeWindow: Window & Record<string, any>;
 			}
 			document.body.appendChild(style);
 		},
-		entryPoint(id, cb) {
-			if (!GM.entryPoints) {
-				GM.entryPoints = {};
+		app(id, cb) {
+			const done = () => {
+				GM.log("🐵🛠", `Running:`, id);
+				cb((...msg) => GM.log(id, ...msg));
 			}
-			GM.entryPoints[id] = cb;
+
+			const dev = GM.metadata.dev!;
+			if (dev) {
+				if ((GM as any).__watching__) {
+					done();
+				} else {
+					(GM as any).__watching__ = true;
+
+					(async () => {
+						GM.log("🐵🛠", "Loading dev resources: ", dev.host);
+						if (dev.watch.requires === true) {
+							if (!dev.host) {
+								throw new Error("Development host domain must be set");
+							}
+							for (const req of GM.metadata["require"]) {
+								if (req.startsWith(dev.host)) {
+									await loadScript(req);
+								}
+							}
+						} else if (dev.watch.requires instanceof Array) {
+							for (const req of dev.watch.requires) {
+								await loadScript(req);
+							}
+						}
+
+						if (dev.watch.resources === true) {
+							if (!dev.host) {
+								throw new Error("Development host domain must be set");
+							}
+							for (const res of GM.info.script.resources) {
+								if (res.url.startsWith(dev.host)) {
+									await loadResource(res.name, res.url);
+								}
+							}
+						} else if (dev.watch.resources instanceof Array) {
+							for (const res of dev.watch.resources) {
+								const obj = GM.getResourceObj(res);
+								await loadResource(obj.name, obj.url);
+							}
+						}
+					})();
+				}
+			} else {
+				done();
+			}
 		},
 	} as GM);
-})();
 
-(async () => {
-	// Entry point watching already configured
-	if ((GM as any).entryPoints) {
-		return;
-	}
 
-	// Setup watchers and initialise
-	async function loadExternal(url: string): Promise<string> {
-		let prev: string | null = null;
-		if (GM.metadata.dev && GM.metadata.dev.log) {
-			GM.log("🐵🛠", `Loading external resource:`, url);
-		}
-		return new Promise<string>(async (r) => {
-			do {
-				const uid = new Date().valueOf();
-				const u = `${url}${url.includes("?") ? "&" : "?"}uid=${uid}`;
-				let resource: string | undefined;
-				try {
-					resource = (
-						await GM.request({
-							url: u,
-							method: "GET",
-						})
-					).responseText;
-				} catch (error) {
-					GM.log("🐵🛠", "Error checking resource:", url);
-					await new Promise((r) => setTimeout(r, 1000));
-					continue;
-				}
-
-				if (prev) {
-					if (prev !== resource) {
-						GM.log("🐵🛠", "Change detected:", url, "Reloading...");
-						window.location.reload();
-					}
-					await new Promise((r) => setTimeout(r, 500));
-				} else {
-					if (GM.metadata.dev && GM.metadata.dev.log) {
-						GM.log("🐵🛠", "Loaded external resource:", url);
-					}
-					r(resource);
-					prev = resource;
-				}
-			} while (true);
-		});
-	}
-
-	async function loadScript(url: string) {
-		eval(await loadExternal(url));
-	}
-
-	async function loadResource(resourceName: string, url: string) {
-		GM.getResourceObj(resourceName).content = await loadExternal(url);
-	}
-
-	if (GM.metadata.dev) {
-		GM.log("🐵🛠", "Loading dev resources: ", GM.metadata.dev.host);
-		if (GM.metadata.dev.watch.requires === true) {
-			if (!GM.metadata.dev.host) {
-				throw new Error("Development host domain must be set");
-			}
-			for (const req of GM.metadata["require"]) {
-				if (req.startsWith(GM.metadata.dev.host)) {
-					await loadScript(req);
-				}
-			}
-		} else if (GM.metadata.dev.watch.requires instanceof Array) {
-			for (const req of GM.metadata.dev.watch.requires) {
-				await loadScript(req);
-			}
-		}
-
-		if (GM.metadata.dev.watch.resources === true) {
-			if (!GM.metadata.dev.host) {
-				throw new Error("Development host domain must be set");
-			}
-			for (const res of GM.info.script.resources) {
-				if (res.url.startsWith(GM.metadata.dev.host)) {
-					await loadResource(res.name, res.url);
-				}
-			}
-		} else if (GM.metadata.dev.watch.resources instanceof Array) {
-			for (const res of GM.metadata.dev.watch.resources) {
-				const obj = GM.getResourceObj(res);
-				await loadResource(obj.name, obj.url);
-			}
-		}
-	}
-
-	requestAnimationFrame(() => {
-		for (const entryPoint in GM.entryPoints) {
-			if (GM.metadata.dev && GM.metadata.dev.log) {
-				GM.log("🐵🛠", "Invoking entry point:", entryPoint);
-			}
-			GM.entryPoints[entryPoint]((...msg) => GM.log(entryPoint, ...msg));
-		}
-	});
 })();

@@ -6,7 +6,8 @@ interface Project {
 	hash_id: string;
 }
 
-GM.entryPoint("artstation ✨", (log) => {
+GM.log("artstation ✨", "Initialising");
+GM.app("artstation ✨", (log) => {
 	class artstation extends iMagePlugin {
 		private static blocklist = [
 			"/c/32020.json",
@@ -28,13 +29,13 @@ GM.entryPoint("artstation ✨", (log) => {
 			.get-started,
 			.home-top-row,
 			.gallery-container .gallery-projects .project:nth-child(12):after,
-			*[ng-show*='!currentUser.turn_off_ads']
+			*[ng-show*='!currentUser.turn_off_ads'],
+			.adult-content-filter
 			{
 				display: none !important;
 			}
 		`;
 
-		private ready: Promise<void>;
 		private project: Project | undefined;
 		private projectLoaded: (() => void) | undefined;
 		private projects: Record<number, Project> = {};
@@ -51,32 +52,28 @@ GM.entryPoint("artstation ✨", (log) => {
 
 			// Filter viewed projects
 			this.on("xhr:loaded", (x) => this.handleXhr(x));
-
-			// Handle viewing artwork pages
 			this.on("stored", (i) => this.projectsViewed(i as number[]));
 
-			// Add custom CSS
-			const style = document.createElement("style");
-			style.textContent = artstation.css;
 
-			let resolve: () => void;
-			this.ready = new Promise((r) => (resolve = r)).then(() => {
+			// Handle switching pages
+			this.on("navigate", (l, f) => this.navigated(l, f));
+
+			// Add custom CSS
+			const onready = () => {
+				const style = document.createElement("style");
+				style.textContent = artstation.css;
 				log("Page ready");
 				document.body.appendChild(style);
-
-				// Handle viewing artwork pages
-				this.on("navigate", (l, f) => this.navigated(l, f));
-			});
-
+			};
 			if (
 				document.readyState === "complete" ||
 				document.readyState === ("loaded" as any) ||
 				document.readyState === "interactive"
 			) {
-				resolve!();
+				onready();
 			} else {
 				document.addEventListener("DOMContentLoaded", () => {
-					resolve();
+					onready();
 				});
 			}
 
@@ -87,24 +84,24 @@ GM.entryPoint("artstation ✨", (log) => {
 				}
 			});
 
-			const isInViewport = function (elem: HTMLElement) {
-				var bounding = elem.getBoundingClientRect();
-				return (
-					bounding.top >= 0 &&
-					bounding.left >= 0 &&
-					bounding.bottom <=
-					(window.innerHeight ||
-						document.documentElement.clientHeight) &&
-					bounding.right <=
-					(window.innerWidth ||
-						document.documentElement.clientWidth)
-				);
-			};
-
 			// Handle context menu click
 			window.addEventListener(
 				"iMage:hide",
 				async (e: Event & { detail?: HTMLImageElement }) => {
+					const isInViewport = function (elem: HTMLElement) {
+						var bounding = elem.getBoundingClientRect();
+						return (
+							bounding.top >= 0 &&
+							bounding.left >= 0 &&
+							bounding.bottom <=
+							(window.innerHeight ||
+								document.documentElement.clientHeight) &&
+							bounding.right <=
+							(window.innerWidth ||
+								document.documentElement.clientWidth)
+						);
+					};
+
 					if (e.detail) {
 						let target: Element | null = e.detail.closest(
 							".project"
@@ -195,7 +192,7 @@ GM.entryPoint("artstation ✨", (log) => {
 						filtered = fullCount - projects.data.length;
 					}
 
-					log(`Filtered ${filtered}/${fullCount} projects`);
+					log(xhr.url, `Filtered ${filtered}/${fullCount} projects`);
 
 					if (isArtPage) {
 						if (projects.data.length) {
@@ -223,7 +220,6 @@ GM.entryPoint("artstation ✨", (log) => {
 
 		private async navigated(location: string, first: boolean) {
 			this.projects = {};
-			await this.ready;
 
 			if (location.includes("/artwork/")) {
 				this.handleArtworkPage(first);
@@ -252,12 +248,12 @@ GM.entryPoint("artstation ✨", (log) => {
 							}
 						});
 
-						(el as HTMLElement).addEventListener(
-							"mouseover",
-							(e) => {
-								console.log(id, this.projects[id]);
-							}
-						);
+						// (el as HTMLElement).addEventListener(
+						// 	"mouseover",
+						// 	(e) => {
+						// 		console.log(id, this.projects[id]);
+						// 	}
+						// );
 					}
 				} else {
 					await new Promise((r) => setTimeout(r, 500));
@@ -267,18 +263,26 @@ GM.entryPoint("artstation ✨", (log) => {
 
 		private async handleArtworkPage(first: boolean) {
 			if (first) {
-				const dataScript = [
-					...document.querySelectorAll("script"),
-				].find((s) =>
-					s.textContent?.includes("cache.put('/projects/")
-				)!;
+				const dataScript = await this.waitFor(async () => {
+					const script = [
+						...document.querySelectorAll("script"),
+					].find((s) =>
+						s.textContent?.includes("cache.put('/projects/")
+					)!;
+					if (script) {
+						return Promise.resolve(script);
+					} else {
+						return Promise.reject();
+					}
+				});
+
 				const js = dataScript.textContent!;
 				const pos = js.indexOf("cache.put('/projects/");
 				const fn = js.substring(pos + 9, js.length - 5);
-
 				this.project = (await new Promise((r) => {
-					const get = (_id: string, data: string) =>
-						r(JSON.parse(data));
+					const get = (_id: string, data: string) => {
+						return r(JSON.parse(data));
+					}
 					eval(get.name + fn);
 				})) as Project;
 
@@ -361,6 +365,7 @@ GM.entryPoint("artstation ✨", (log) => {
 					}
 				}
 			};
+
 			for (const picture of pictures) {
 				const img: HTMLImageElement = picture.querySelector("img")!;
 				if (!img.naturalWidth) {

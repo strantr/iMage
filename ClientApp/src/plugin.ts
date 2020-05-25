@@ -79,12 +79,12 @@ const iMagePlugin = (() => {
 		const push = history.pushState;
 		history.pushState = function () {
 			push.apply(this, arguments as any);
-			requestAnimationFrame(() => listener());
+			listener();
 		};
 		const replace = history.replaceState;
 		history.replaceState = function () {
 			replace.apply(this, arguments as any);
-			requestAnimationFrame(() => listener());
+			listener();
 		};
 	}
 

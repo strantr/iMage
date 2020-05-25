@@ -1,7 +1,7 @@
 /// <reference path="./gm.ts" />
 /// <reference path="./cropper.ts" />
 
-GM.entryPoint("🧙‍♂️🖼", async (log) => {
+GM.app("🧙‍♂️🖼", async (log) => {
 	if (!GM.metadata["host"]) {
 		throw new Error("@host userscript metadata not set.");
 	}
