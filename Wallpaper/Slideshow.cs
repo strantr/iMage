@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -62,32 +63,39 @@ namespace iMage.Wallpaper
             {
                 screenIndex = 0;
             }
-            var id = wallpaper.GetMonitorDevicePathAt(screenIndex);
-            var bounds = wallpaper.GetMonitorRECT(id);
-            var res = new Size(bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
-            if (wallpaperQueue.ContainsKey(res))
+            try
             {
-                var queue = wallpaperQueue[res];
-                string img = null;
-                while (img == null && queue.Count > 0)
+                var id = wallpaper.GetMonitorDevicePathAt(screenIndex);
+                var bounds = wallpaper.GetMonitorRECT(id);
+                var res = new Size(bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
+                if (wallpaperQueue.ContainsKey(res))
                 {
-                    img = queue.Dequeue();
-                    // Remove deleted files
-                    if (!File.Exists(img))
+                    var queue = wallpaperQueue[res];
+                    string img = null;
+                    while (img == null && queue.Count > 0)
                     {
-                        known.Remove(img);
-                        img = null;
+                        img = queue.Dequeue();
+                        // Remove deleted files
+                        if (!File.Exists(img))
+                        {
+                            known.Remove(img);
+                            img = null;
+                        }
                     }
+                    queue.Enqueue(img);
+                    wallpaper.SetWallpaper(id, img);
+                    wallpaper.SetPosition(DesktopWallpaperPosition.Fill);
+                    current[new Point(bounds.Left, bounds.Right)] = img;
+                    ++screenIndex;
                 }
-                queue.Enqueue(img);
-                wallpaper.SetWallpaper(wallpaper.GetMonitorDevicePathAt(screenIndex), img);
-                wallpaper.SetPosition(DesktopWallpaperPosition.Fill);
-                current[new Point(bounds.Left, bounds.Right)] = img;
-                ++screenIndex;
+                if (manuallyTriggered)
+                {
+                    timer.Change(interval, interval);
+                }
             }
-            if (manuallyTriggered)
+            catch (COMException) when (Screen.AllScreens.Length != screenCount)
             {
-                timer.Change(interval, interval);
+                // For some reason GetMonitorDevicePathCount can report more screens than you have?
             }
         }
 
