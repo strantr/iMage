@@ -37,6 +37,7 @@ GM.entryPoint("artstation ✨", (log) => {
 		private ready: Promise<void>;
 		private project: Project | undefined;
 		private projectLoaded: (() => void) | undefined;
+		private projects: Record<number, Project> = {};
 
 		constructor() {
 			super(log);
@@ -92,11 +93,11 @@ GM.entryPoint("artstation ✨", (log) => {
 					bounding.top >= 0 &&
 					bounding.left >= 0 &&
 					bounding.bottom <=
-						(window.innerHeight ||
-							document.documentElement.clientHeight) &&
+					(window.innerHeight ||
+						document.documentElement.clientHeight) &&
 					bounding.right <=
-						(window.innerWidth ||
-							document.documentElement.clientWidth)
+					(window.innerWidth ||
+						document.documentElement.clientWidth)
 				);
 			};
 
@@ -166,6 +167,7 @@ GM.entryPoint("artstation ✨", (log) => {
 				if (artstation.isProjectResponse(projects)) {
 					const existing = await this.hasViewed(
 						projects.data.map((d) => {
+							this.projects[d.id] = d;
 							return d.id;
 						})
 					);
@@ -211,6 +213,7 @@ GM.entryPoint("artstation ✨", (log) => {
 						first.hide_as_adult = true;
 						projects.data = [first];
 					}
+
 					setResponse(JSON.stringify(projects));
 				}
 			} catch (error) {
@@ -219,6 +222,7 @@ GM.entryPoint("artstation ✨", (log) => {
 		}
 
 		private async navigated(location: string, first: boolean) {
+			this.projects = {};
 			await this.ready;
 
 			if (location.includes("/artwork/")) {
@@ -227,22 +231,37 @@ GM.entryPoint("artstation ✨", (log) => {
 				this.projectLoaded = this.project = undefined;
 			}
 
-			const els = [
-				...document.querySelectorAll(`a[artstation-open-project]`),
-			];
+			let i = 5;
+			while (i-- > 0) {
+				const els = [
+					...document.querySelectorAll(`a[artstation-open-project]`),
+				];
 
-			log("Found", els.length, "projects on page");
-			for (const el of els) {
-				const id = +el.getAttribute("artstation-open-project")!;
-				if (await this.hasViewed(id)) {
-					el.parentElement!.style.filter = "sepia(1) blur(2px)";
-				}
+				if (els.length) {
+					i = 0;
+					log("Found", els.length, "projects on page");
+					for (const el of els) {
+						const id = +el.getAttribute("artstation-open-project")!;
+						if (await this.hasViewed(id)) {
+							el.parentElement!.style.display = "none";
+						}
 
-				(el as HTMLElement).addEventListener("mouseup", (e) => {
-					if (e.button === 0 || e.button === 1) {
-						this.storeView(id);
+						(el as HTMLElement).addEventListener("mouseup", (e) => {
+							if (e.button === 0 || e.button === 1) {
+								this.storeView(id);
+							}
+						});
+
+						(el as HTMLElement).addEventListener(
+							"mouseover",
+							(e) => {
+								console.log(id, this.projects[id]);
+							}
+						);
 					}
-				});
+				} else {
+					await new Promise((r) => setTimeout(r, 500));
+				}
 			}
 		}
 
@@ -307,9 +326,39 @@ GM.entryPoint("artstation ✨", (log) => {
 			const loaded = () => {
 				loading.textContent = `Loading... ${++loadCount}/${
 					pictures.length
-				}`;
+					}`;
 				if (+loadCount === pictures.length) {
 					loading.remove();
+
+					if (pictures.length > 1) {
+						const thumbs = document.createElement("div");
+						Object.assign(thumbs.style, {
+							display: "flex",
+							flexWrap: "wrap",
+							justifyContent: "center",
+						});
+						for (const picture of pictures) {
+							const img = picture.querySelector(
+								"img"
+							) as HTMLImageElement;
+							const thumb: HTMLImageElement = document.createElement(
+								"img"
+							);
+							Object.assign(thumb.style, {
+								width: "15%",
+								height: "auto",
+								objectFit: "contain",
+								marginRight: "5px",
+								cursor: "pointer",
+							});
+							thumb.onclick = () => {
+								picture.scrollIntoView();
+							};
+							thumb.src = img.src;
+							thumbs.appendChild(thumb);
+						}
+						main.prepend(thumbs);
+					}
 				}
 			};
 			for (const picture of pictures) {
@@ -327,7 +376,7 @@ GM.entryPoint("artstation ✨", (log) => {
 				const src = img.getAttribute("src");
 				const href = `${src}#id=${
 					this.project.id
-				}&metadata=${encodeURIComponent(meta)}`;
+					}&metadata=${encodeURIComponent(meta)}`;
 
 				const wrapper = document.createElement("a");
 				wrapper.href = href;
