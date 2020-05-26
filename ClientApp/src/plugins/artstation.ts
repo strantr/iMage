@@ -29,6 +29,7 @@ GM.app("artstation ✨", (log) => {
 			.get-started,
 			.home-top-row,
 			.gallery-container .gallery-projects .project:nth-child(12):after,
+			.gallery-container .gallery-projects .project:nth-child(30)::after,
 			*[ng-show*='!currentUser.turn_off_ads'],
 			.adult-content-filter
 			{
@@ -354,6 +355,8 @@ GM.app("artstation ✨", (log) => {
 								objectFit: "contain",
 								marginRight: "5px",
 								cursor: "pointer",
+								maxHeight: "200px",
+								marginBottom: "10px"
 							});
 							thumb.onclick = () => {
 								picture.scrollIntoView();
