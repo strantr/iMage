@@ -297,6 +297,12 @@ GM.app("artstation ✨", (log) => {
         }
       });
 
+      // Force high res
+      for (const picture of pictures) {
+        const source = picture.querySelector("source[media*='1200']")!;
+        source.setAttribute("media", "(min-width: 0)");
+      }
+
       const loading = document.createElement("div");
       Object.assign(loading.style, {
         backgroundImage:
