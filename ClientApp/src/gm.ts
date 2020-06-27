@@ -48,6 +48,7 @@ interface GM {
 		host?: string;
 	};
 	log(section: LogMessage, ...messages: any[]): void;
+	debug(section: LogMessage, ...messages: any[]): void;
 	request<T>(opts: RequestOptions & { parse: true }): Promise<T>;
 	request(opts: RequestOptions): Promise<XMLHttpRequest>;
 	getResourceObj(resourceName: string): GM_resource;
@@ -55,11 +56,10 @@ interface GM {
 	addStyle(
 		opts:
 			| {
-				style:
-				| string
-				| Record<string, Record<string, string | number>>;
-			}
+					style: string | Record<string, Record<string, string | number>>;
+			  }
 			| { resourceName: string }
+			| string
 	): Promise<void>;
 	app(id: string, callback: (log: Console["log"]) => void): void;
 }
@@ -69,9 +69,7 @@ declare const unsafeWindow: Window & Record<string, any>;
 (() => {
 	async function loadExternal(url: string): Promise<string> {
 		let prev: string | null = null;
-		if (GM.metadata.dev && GM.metadata.dev.log) {
-			GM.log("🐵🛠", `Loading external resource:`, url);
-		}
+		GM.debug("🐵🛠", `Loading external resource:`, url);
 		return new Promise<string>(async (r) => {
 			do {
 				const uid = new Date().valueOf();
@@ -97,9 +95,7 @@ declare const unsafeWindow: Window & Record<string, any>;
 					}
 					await new Promise((r) => setTimeout(r, 500));
 				} else {
-					if (GM.metadata.dev && GM.metadata.dev.log) {
-						GM.log("🐵🛠", "Loaded external resource:", url);
-					}
+					GM.debug("🐵🛠", "Loaded external resource:", url);
 					r(resource);
 					prev = resource;
 				}
@@ -149,6 +145,16 @@ declare const unsafeWindow: Window & Record<string, any>;
 				...messages
 			);
 		},
+		debug(section, ...messages) {
+			if (GM.metadata.dev && GM.metadata.dev.log) {
+				console.debug(
+					`%c🐛 DEBUG %c[${section}]`,
+					"color: red; font-weight: bold",
+					"color: dodgerblue; font-weight: bold",
+					...messages
+				);
+			}
+		},
 		request(opts: RequestOptions) {
 			return new Promise((res, rej) => {
 				const req = {
@@ -180,9 +186,7 @@ declare const unsafeWindow: Window & Record<string, any>;
 			});
 		},
 		getResourceObj(resourceName) {
-			const obj = GM.info.script.resources.find(
-				(r) => r.name === resourceName
-			);
+			const obj = GM.info.script.resources.find((r) => r.name === resourceName);
 			if (!obj) {
 				throw new Error(`Resource '${resourceName}' not found.`);
 			}
@@ -193,7 +197,9 @@ declare const unsafeWindow: Window & Record<string, any>;
 		},
 		addStyle(opts) {
 			const style = document.createElement("style");
-			if ("resourceName" in opts) {
+			if (typeof opts === "string") {
+				style.textContent = opts;
+			} else if ("resourceName" in opts) {
 				style.textContent = GM.getResource(opts.resourceName);
 			} else if (typeof opts.style === "string") {
 				style.textContent = opts.style;
@@ -218,7 +224,7 @@ declare const unsafeWindow: Window & Record<string, any>;
 			const done = () => {
 				GM.log("🐵🛠", `Running:`, id);
 				cb((...msg) => GM.log(id, ...msg));
-			}
+			};
 
 			const dev = GM.metadata.dev!;
 			if (dev) {
@@ -266,6 +272,4 @@ declare const unsafeWindow: Window & Record<string, any>;
 			}
 		},
 	} as GM);
-
-
 })();

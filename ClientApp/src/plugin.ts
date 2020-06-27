@@ -1,78 +1,119 @@
 /// <reference path="./gm.ts" />
 
-const iMagePlugin = (() => {
-	interface XMLHttpRequest2 extends XMLHttpRequest {
-		url: string;
-		method: string;
-	}
+interface XMLHttpRequest2 extends XMLHttpRequest {
+	url: string | undefined;
+	method: string | undefined;
+	getResponseJSON<T extends {}>(): T;
+	setResponseJSON(data: {}): void;
+}
 
-	function hookNetwork(listeners: {
+const iMagePlugin = (() => {
+	const _EVENTS_ = Symbol();
+	const _xhr: typeof XMLHttpRequest = unsafeWindow.XMLHttpRequest;
+	let _listeners: {
 		sending?: (xhr: XMLHttpRequest2) => Promise<boolean>;
 		loaded?: (xhr: XMLHttpRequest2) => Promise<void>;
-	}) {
-		GM.log("💻 XHR", "Installing hooks");
+	};
 
-		const xhr = {
-			open: XMLHttpRequest.prototype.open,
-			send: XMLHttpRequest.prototype.send,
-			addEventListener: XMLHttpRequest.prototype.addEventListener,
-		};
+	class _XMLHttpRequest2 extends _xhr implements XMLHttpRequest2 {
+		private [_EVENTS_]: Function[];
+		public url: string | undefined;
+		public method: string | undefined;
 
-		// Intercept load event handlers
-		const loadEvents: Array<Function> = [];
-		XMLHttpRequest.prototype.addEventListener = function (
-			this: XMLHttpRequest,
-			event: string,
-			handler: Function
+		constructor() {
+			super();
+			this[_EVENTS_] = [];
+		}
+
+		public addEventListener(
+			evt: string,
+			handler: (evt: Event) => void,
+			..._: any[]
 		) {
-			if (event === "load") {
-				loadEvents.push(handler);
+			if (evt === "load" && _listeners.loaded) {
+				GM.debug("💻 XHR", "💫 Intercepting load listener");
+				this[_EVENTS_].push(handler);
 			} else {
-				return xhr.addEventListener.apply(this, arguments as any);
+				super.addEventListener.apply(this, arguments as any);
 			}
-		} as any;
+		}
 
-		// Intercept open to add metadata and handlers
-		XMLHttpRequest.prototype.open = function (
-			this: XMLHttpRequest2,
-			method: string,
-			url: string
-		) {
-			let onload = this.onload;
+		public async open(method: string, url: string) {
 			this.method = method;
 			this.url = url;
-			this.onload = null;
+			GM.debug("💻 XHR", "🚪 Open", `(${this.method} ${this.url})`);
+			return super.open.apply(this, arguments as any);
+		}
 
-			Object.defineProperty(this, "onload", {
-				get() {
-					return onload;
+		public getResponseJSON<T extends {}>(): T {
+			return this.responseType === "json"
+				? this.response
+				: JSON.parse(this.responseText);
+		}
+
+		public setResponseJSON(data: {}) {
+			Object.defineProperties(this, {
+				response: {
+					get: () =>
+						this.responseType === "json" ? data : JSON.stringify(data),
 				},
-				set(listener) {
-					onload = listener;
+				responseText: {
+					get: () => JSON.stringify(data),
 				},
 			});
+		}
 
-			xhr.addEventListener.call(this, "load", async (...args: any[]) => {
-				if (listeners.loaded) {
-					await listeners.loaded(this);
-				}
-				if (onload) {
-					onload.apply(this, args as any);
-				}
-				for (const evt of loadEvents) {
-					evt.apply(this, args);
-				}
-			});
+		public send() {
+			GM.debug("💻 XHR", "📫 Sending", `(${this.method} ${this.url})`);
 
-			return xhr.open.apply(this, arguments as any);
-		};
+			let run = () => {
+				if (_listeners.loaded) {
+					if (this.onload) {
+						GM.debug(
+							"💻 XHR",
+							"💫 Intercepting onload listener",
+							`(${this.method} ${this.url})`
+						);
+						this[_EVENTS_].unshift(this.onload);
+						this.onload = null;
+					}
 
-		XMLHttpRequest.prototype.send = async function (this: XMLHttpRequest2) {
-			if (listeners.sending && !(await listeners.sending(this))) {
-				return;
+					let self = this;
+					super.addEventListener("load", function () {
+						GM.debug(
+							"💻 XHR",
+							"💫 Calling load hook",
+							`(${self.method} ${self.url})`
+						);
+						_listeners.loaded!(self).then(() => {
+							for (const evt of self[_EVENTS_] || []) {
+								evt.apply(this, arguments);
+							}
+						});
+					});
+				}
+
+				super.send.apply(this, arguments as any);
+				GM.debug("💻 XHR", "📫 Sent", `(${this.method} ${this.url})`);
+			};
+
+			if (_listeners.sending) {
+				_listeners.sending(this).then((r) => {
+					if (r) {
+						run();
+					}
+				});
+			} else {
+				run();
 			}
-			xhr.send.apply(this, arguments as any);
-		};
+		}
+	}
+
+	function hookNetwork(listeners: typeof _listeners) {
+		GM.log("💻 XHR", "Installing hooks");
+
+		unsafeWindow.XMLHttpRequest = _XMLHttpRequest2;
+		_listeners = listeners;
 	}
 
 	function hookNavigate(listener: () => Promise<void>) {
@@ -127,11 +168,11 @@ const iMagePlugin = (() => {
 					send = false;
 				}
 			}
-			if (!send) {
-				GM.log("💻 XHR", "🛑", xhr.method + " " + xhr.url);
-			} else {
-				GM.log("💻 XHR", "✅", xhr.method + " " + xhr.url);
-			}
+			GM.log(
+				"💻 XHR",
+				send ? "✅ Allowed" : "🛑 Blocked",
+				"(" + xhr.method + " " + xhr.url + ")"
+			);
 			return send;
 		}
 
@@ -172,10 +213,7 @@ const iMagePlugin = (() => {
 		private async getStoreTransaction(write: boolean = false) {
 			const db = await this.getDb();
 			return db
-				.transaction(
-					this.constructor.name,
-					write ? "readwrite" : "readonly"
-				)
+				.transaction(this.constructor.name, write ? "readwrite" : "readonly")
 				.objectStore(this.constructor.name);
 		}
 
@@ -186,34 +224,32 @@ const iMagePlugin = (() => {
 		}
 
 		public async storeView<T extends string | number>(
-			ids: T | T[]
+			ids: T | T[],
+			broadcast: boolean
 		): Promise<void> {
 			if (!(ids instanceof Array)) {
 				ids = [ids];
 			}
-			this.broadcast("stored", ids);
 			try {
 				await Promise.all(
 					ids.map(async (item) => {
 						return promisify(
-							(await this.getStoreTransaction(true)).add(
-								item,
-								item
-							)
+							(await this.getStoreTransaction(true)).add(item, item)
 						);
 					})
 				);
 			} catch (error) {
 				// ignore
 			}
+			if (broadcast) {
+				this.broadcast("stored", ids);
+			}
 		}
 
 		public async hasViewed<T extends string | number>(
 			ids: T[]
 		): Promise<Set<T>>;
-		public async hasViewed<T extends string | number>(
-			id: T
-		): Promise<boolean>;
+		public async hasViewed<T extends string | number>(id: T): Promise<boolean>;
 		public async hasViewed<T extends string | number>(
 			ids: T | T[]
 		): Promise<any> {
@@ -227,9 +263,7 @@ const iMagePlugin = (() => {
 			await Promise.all(
 				ids.map((item) =>
 					promisify(store.get(item)).then((e) => {
-						if (
-							((e as Event).target as IDBRequest).result === item
-						) {
+						if (((e as Event).target as IDBRequest).result === item) {
 							exists.add(item);
 						}
 					})
@@ -258,7 +292,23 @@ const iMagePlugin = (() => {
 			event: "stored",
 			listener: (ids: (string | number)[]) => Promise<void>
 		): void;
+		public on(event: "ready", listener: () => void): void;
 		on(event: string, listener: Function): void {
+			if (event === "ready") {
+				if (
+					document.readyState === "complete" ||
+					document.readyState === ("loaded" as any) ||
+					document.readyState === "interactive"
+				) {
+					listener();
+				} else {
+					document.addEventListener("DOMContentLoaded", () => {
+						listener();
+					});
+				}
+				return;
+			}
+
 			if (!(event in this.listeners)) {
 				this.listeners[event] = [];
 			}
@@ -283,9 +333,7 @@ const iMagePlugin = (() => {
 				const menu: HTMLMenuElement = document.createElement("menu");
 
 				let target: Element;
-				(menu as any).onshow = (e: {
-					explicitOriginalTarget: Element;
-				}) => {
+				(menu as any).onshow = (e: { explicitOriginalTarget: Element }) => {
 					target = e.explicitOriginalTarget;
 					window.dispatchEvent(
 						new CustomEvent("iMage:preview", { detail: target })
@@ -304,11 +352,15 @@ const iMagePlugin = (() => {
 				menu.appendChild(item);
 				document.body.appendChild(menu);
 			}
-			const elements = document.querySelectorAll(selector);
+			const elements = [...document.querySelectorAll(selector)].filter((el) => {
+				return el.getAttribute("contextmenu") !== "iMageMenu";
+			});
 			for (const el of elements) {
 				el.setAttribute("contextmenu", "iMageMenu");
 			}
-			this.log("Added menu to", elements.length, "items");
+			if (elements.length) {
+				this.log("Added menu to", elements.length, "items");
+			}
 		}
 
 		protected async waitFor<T>(check: () => Promise<T>) {
@@ -321,6 +373,17 @@ const iMagePlugin = (() => {
 				}
 			}
 		}
+
+		// public debug_logAllValues() {
+		// 	this.getDb().then((db) => {
+		// 		db
+		// 			.transaction(this.constructor.name)
+		// 			.objectStore(this.constructor.name)
+		// 			.getAll().onsuccess = function () {
+		// 				console.log(this.result.join(","));
+		// 			};
+		// 	});
+		// }
 	}
 
 	return iMagePlugin;

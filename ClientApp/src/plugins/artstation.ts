@@ -1,410 +1,377 @@
 /// <reference path="../plugin.ts" />
 
 interface Project {
-  id: number;
-  hide_as_adult: boolean;
-  hash_id: string;
+	id: number;
+	hide_as_adult: boolean;
+	hash_id: string;
+}
+
+interface ProjectElement {
+	id: number;
+	hash: string;
+	link: HTMLElement;
+	parent: HTMLElement;
 }
 
 GM.log("artstation ✨", "Initialising");
 GM.app("artstation ✨", (log) => {
-  class artstation extends iMagePlugin {
-    private static blocklist = [
-      "/c/32020.json",
-      "cart/guest/count.json",
-      "/marketplace/products/",
-      "ng-version.txt",
-      "/comments.json",
-      "/views_tracking/entity_views.json",
-      "/top_row_items.json",
-      "/public_announcements/current.json",
-      "/blogging/posts/",
-      "/messaging/messages/",
-    ];
+	class artstation extends iMagePlugin {
+		private static artworkLinkSelector = "[href*='/artwork/']";
 
-    private static css = `
-			community-subscriptions,
-			community-subscriptions ~ *,
-			.gallery-marketplace, 
-			.get-started,
-			.home-top-row,
-			.gallery-container .gallery-projects .project:nth-child(12):after,
-			.gallery-container .gallery-projects .project:nth-child(30)::after,
-			*[ng-show*='!currentUser.turn_off_ads'],
-			.adult-content-filter
+		private static blocklist = [
+			"/announcements/",
+			"/notifications/",
+			"/messaging/",
+			"/cart/",
+			"/learning/",
+			"/marketplace/",
+			"/prints/",
+			"/blogging/",
+			"/views_tracking/",
+			"/top_row_items.json",
+			"/52020.json",
+			"/jobs.json",
+			"/myartstation/settings/user_blocks.json",
+			"ng-version.txt",
+			"comments.json",
+			"profitwell.com",
+		];
+
+		private static css = `
+			hello-world,
+			sidebar-product,
+			marketplace-popular-product,
+			featured-magazine-posts,
+			subscription-plans,
+			learning-courses,
+			marketplace-products,
+			art-prints-carousel,
+			featured-jobs,
+			blogs-trending,
+			latest-magazine-posts,
+			.mobile-apps,
+			.chrome-store,
+			.home-books,
+			.site-footer,
+			.corporate-footer,
+			.project-comments-title,
+			.project-comments-form,
+			[ng-if="user.show_store"],
+			[ng-if="user.show_prints"],
+			[ng-if="user.show_blog"],
+			[ng-class="{active: action=='challenges'}"],
+			[ng-class="{active: action=='following'}"],
+			[ng-class="{active: action=='followers'}"],
+			[ng-class="{active: action=='profile'}"],
+			li[ng-if="showResourceActions"],
+			[ng-authorized-click="showUserMessageModal()"]
 			{
 				display: none !important;
 			}
+			sticky-navigation+ul.list-inline {
+				position: absolute;
+				z-index: 9999;
+				right: 0;
+				margin-top: -50px;
+			}
 		`;
 
-    private project: Project | undefined;
-    private projectLoaded: (() => void) | undefined;
-    private projects: Record<number, Project> = {};
+		private activeRequests: Map<
+			XMLHttpRequest2,
+			{ wait: Promise<void>; resolve: () => void }
+		> = new Map();
+		private projectsById: Record<number, Project> = {};
+		private projectsByHash: Record<string, Project> = {};
 
-    constructor() {
-      super(log);
+		private get currentPage(): "list" | "artwork" | "other" {
+			const page = window.location.toString();
+			if (page.includes("/community/")) {
+				return "list";
+			} else if (page.includes("/artwork/")) {
+				return "artwork";
+			}
 
-      // Block pointless requests
-      this.on(
-        "xhr:sending",
-        async (xhr) => !artstation.blocklist.find((b) => xhr.url.includes(b))
-      );
+			return "other";
+		}
 
-      // Filter viewed projects
-      this.on("xhr:loaded", (x) => this.handleXhr(x));
-      this.on("stored", (i) => this.projectsViewed(i as number[]));
+		constructor() {
+			super(log);
 
-      // Handle switching pages
-      this.on("navigate", (l, f) => this.navigated(l, f));
+			this.on("xhr:sending", this.xhrSending);
+			this.on("xhr:loaded", this.xhrLoaded);
 
-      // Add custom CSS
-      const onready = () => {
-        const style = document.createElement("style");
-        style.textContent = artstation.css;
-        log("Page ready");
-        document.body.appendChild(style);
-      };
-      if (
-        document.readyState === "complete" ||
-        document.readyState === ("loaded" as any) ||
-        document.readyState === "interactive"
-      ) {
-        onready();
-      } else {
-        document.addEventListener("DOMContentLoaded", () => {
-          onready();
-        });
-      }
+			this.on("ready", this.ready);
+			this.on("navigate", this.navigated);
+			this.on("stored", this.projectStored);
 
-      // Add context menu on mouse down
-      document.addEventListener("mousedown", (e) => {
-        if (e.button == 2) {
-          this.addMenu(".project");
-        }
-      });
+			document.addEventListener("mouseup", this.mouseUp.bind(this), {
+				capture: true,
+			});
 
-      // Handle context menu click
-      window.addEventListener(
-        "iMage:hide",
-        async (e: Event & { detail?: HTMLImageElement }) => {
-          const isInViewport = function (elem: HTMLElement) {
-            var bounding = elem.getBoundingClientRect();
-            return (
-              bounding.top >= 0 &&
-              bounding.left >= 0 &&
-              bounding.bottom <=
-                (window.innerHeight || document.documentElement.clientHeight) &&
-              bounding.right <=
-                (window.innerWidth || document.documentElement.clientWidth)
-            );
-          };
+			window.addEventListener(
+				"iMage:hide",
+				async (e: Event & { detail?: HTMLImageElement }) => {
+					if (e.detail) {
+						this.hideProjectsBefore(e.detail);
+					}
+				}
+			);
+		}
 
-          if (e.detail) {
-            let target: Element | null = e.detail.closest(".project")!;
-            const next: HTMLElement = target.nextElementSibling as HTMLElement;
-            const hide: number[] = [];
-            do {
-              const id = +target
-                .querySelector("[artstation-open-project]")!
-                .getAttribute("artstation-open-project")!;
-              (target as HTMLElement).style.display = "none";
-              hide.push(id);
-            } while ((target = target.previousElementSibling));
-            log("Hiding", hide.length, "projects");
-            await this.storeView(hide);
-            if (next && next.classList.contains("project")) {
-              if (!isInViewport(next)) {
-                next.scrollIntoView();
-              }
-            }
-          }
-        }
-      );
-    }
+		private hideProjectsBefore(link: HTMLImageElement) {
+			let project = this.getProject(link, "ancestor");
+			let next = project ? project.parent.nextElementSibling : null;
+			while (project) {
+				this.viewedProject(project, true);
+				this.storeView(project.id, true);
+				project = this.getProject(
+					project.parent.previousElementSibling as HTMLElement,
+					"descendant"
+				);
+			}
+			if (next) {
+				if (!artstation.isInViewport(next)) {
+					next.scrollIntoView();
+				}
+			}
+		}
 
-    private async handleXhr(xhr: XMLHttpRequest & { url: string }) {
-      const setResponse = (data: string) =>
-        Object.defineProperties(xhr, {
-          response: {
-            get: () => data,
-          },
-          responseText: {
-            get: () => data,
-          },
-        });
+		private mouseUp(e: MouseEvent) {
+			if (e.button === 0 || e.button === 1) {
+				// Hide images on mouseup
+				const proj = this.getProject(e.srcElement as HTMLElement, "ancestor");
+				if (proj) {
+					log("Viewed project", proj);
+					this.viewedProject(proj, false);
+					this.storeView(proj.id, false);
+				}
+			} else if (e.button === 2) {
+				this.addMenu(artstation.artworkLinkSelector);
+			}
+		}
 
-      const isArtPage = window.location.pathname.startsWith("/artwork/");
-      let isMosaic: boolean = false;
+		private ready() {
+			log("Page ready");
+			GM.addStyle(artstation.css);
+		}
 
-      if (isArtPage) {
-        const id = window.location.pathname.split("/").pop()!;
-        if (xhr.url.endsWith("/projects/" + id + ".json")) {
-          // Project page viewed
-          this.project = JSON.parse(xhr.responseText) as Project;
-          await this.storeView(this.project.id);
-          this.project.hide_as_adult = false;
-          setResponse(JSON.stringify(this.project));
-          if (this.projectLoaded) {
-            this.projectLoaded();
-          }
-          return;
-        }
-      } else {
-        isMosaic =
-          window.location.pathname === "/" &&
-          !!xhr.url.match(/projects.json\?page=\d+&randomize=true/);
-      }
-      try {
-        const projects = JSON.parse(xhr.responseText);
-        if (artstation.isProjectResponse(projects)) {
-          const existing = await this.hasViewed(
-            projects.data.map((d) => {
-              this.projects[d.id] = d;
-              return d.id;
-            })
-          );
-          const first = projects.data[0];
-          const fullCount = projects.data.length;
-          let filtered: number = 0;
-          if (isMosaic) {
-            for (const proj of projects.data) {
-              if ((proj.hide_as_adult = existing.has(proj.id))) {
-                filtered++;
-              }
-            }
-            projects.data.sort((a, b) => +a.hide_as_adult - +b.hide_as_adult);
-          } else {
-            projects.data = projects.data.filter((d) => {
-              if (existing.has(d.id)) {
-                return false;
-              } else {
-                d.hide_as_adult = false;
-                return true;
-              }
-            });
-            filtered = fullCount - projects.data.length;
-          }
+		private getHashFromUrl(url: string = window.location.toString()) {
+			return url.split("/artwork/")[1];
+		}
 
-          log(xhr.url, `Filtered ${filtered}/${fullCount} projects`);
+		private getProject(
+			el: HTMLElement,
+			findLink: "ancestor" | "descendant" | false
+		) {
+			let link: HTMLElement | null = el;
+			if (el) {
+				if (findLink === "ancestor") {
+					link = el.closest(artstation.artworkLinkSelector) as HTMLElement;
+				} else if (findLink === "descendant") {
+					if (el.matches(artstation.artworkLinkSelector)) {
+						link = el;
+					} else {
+						link = el.querySelector(artstation.artworkLinkSelector);
+					}
+				}
+			}
 
-          if (isArtPage) {
-            if (projects.data.length) {
-              this.waitFor(() => {
-                (document.querySelector(
-                  ".artist .pull-left img"
-                ) as HTMLElement).style.border = "5px solid #ff0000";
-                return Promise.resolve();
-              });
-            }
-          }
+			if (!link) {
+				return null;
+			}
 
-          if (!projects.data.length) {
-            first.hide_as_adult = true;
-            projects.data = [first];
-          }
+			const hash = this.getHashFromUrl(link.getAttribute("href")!);
+			if (!(hash in this.projectsByHash)) {
+				console.error("Project not found by hash", hash, this.projectsByHash);
+			}
+			const id = this.projectsByHash[hash].id;
+			return {
+				id,
+				hash,
+				link,
+				get parent() {
+					return (
+						(link!.closest(
+							".project, .more-artworks-item, .mosaic-element"
+						) as HTMLElement) || link
+					);
+				},
+			};
+		}
 
-          setResponse(JSON.stringify(projects));
-        }
-      } catch (error) {
-        log(error);
-      }
-    }
+		private async getProjectsOnPage(
+			waitForAny: boolean
+		): Promise<ProjectElement[]> {
+			let projects: ProjectElement[];
+			let step = 0;
+			do {
+				if (projects!) {
+					await new Promise((r) => setTimeout(r, 100));
+				}
+				projects = [
+					...document.querySelectorAll(artstation.artworkLinkSelector),
+				].map((el) => this.getProject(el as HTMLElement, false)!);
+			} while (waitForAny && !projects.length && ++step < 10);
 
-    private async navigated(location: string, first: boolean) {
-      this.projects = {};
+			return projects;
+		}
 
-      if (location.includes("/artwork/")) {
-        this.handleArtworkPage(first);
-      } else {
-        this.projectLoaded = this.project = undefined;
-      }
+		private async findProjectOnPage(id: number) {
+			const projects = await this.getProjectsOnPage(false);
+			return projects.find((p) => p.id === id);
+		}
 
-      let i = 5;
-      while (i-- > 0) {
-        const els = [
-          ...document.querySelectorAll(`a[artstation-open-project]`),
-        ];
+		private viewedProject(proj: ProjectElement, hide: boolean) {
+			if (hide) {
+				proj.parent.style.display = "none";
+			} else {
+				proj.parent.style.filter = "sepia(1) blur(2px)";
+			}
+		}
 
-        if (els.length) {
-          i = 0;
-          log("Found", els.length, "projects on page");
-          for (const el of els) {
-            const id = +el.getAttribute("artstation-open-project")!;
-            if (await this.hasViewed(id)) {
-              el.parentElement!.style.display = "none";
-            }
+		private async hideProjectsOnPage() {
+			// Handle hiding projects on the page on load/cached
+			const projects = await this.getProjectsOnPage(true);
+			const seen = await this.hasViewed(projects.map((p) => p.id));
+			log("Hiding", `${seen.size}/${projects.length}`, "projects on page");
+			for (const proj of projects) {
+				if (seen.has(proj.id)) {
+					this.viewedProject(proj, true);
+				}
+			}
+		}
 
-            (el as HTMLElement).addEventListener("mouseup", (e) => {
-              if (e.button === 0 || e.button === 1) {
-                this.storeView(id);
-              }
-            });
+		private async handleArtworkPage(first: boolean) {
+			let project: Project;
+			if (first) {
+				// On initial load the JSON for the current project is stored in a script tag
+				// hacky method for extracting it:
+				const script = [...document.querySelectorAll("script")].find((s) =>
+					s.textContent?.includes("cache.put('/projects/")
+				)!;
 
-            // (el as HTMLElement).addEventListener(
-            // 	"mouseover",
-            // 	(e) => {
-            // 		console.log(id, this.projects[id]);
-            // 	}
-            // );
-          }
-        } else {
-          await new Promise((r) => setTimeout(r, 500));
-        }
-      }
-    }
+				const js = script.textContent!;
+				const pos = js.indexOf("cache.put('/projects/");
+				const fn = js.substring(pos + 9, js.length - 5);
+				project = (await new Promise((r) => {
+					const get = (_id: string, data: string) => {
+						return r(JSON.parse(data));
+					};
+					eval(get.name + fn);
+				})) as Project;
 
-    private async handleArtworkPage(first: boolean) {
-      if (first) {
-        const dataScript = await this.waitFor(async () => {
-          const script = [...document.querySelectorAll("script")].find((s) =>
-            s.textContent?.includes("cache.put('/projects/")
-          )!;
-          if (script) {
-            return Promise.resolve(script);
-          } else {
-            return Promise.reject();
-          }
-        });
+				this.projectsByHash[project.hash_id] = this.projectsById[
+					project.id
+				] = project;
+			} else {
+				project = this.projectsByHash[this.getHashFromUrl()];
+			}
 
-        const js = dataScript.textContent!;
-        const pos = js.indexOf("cache.put('/projects/");
-        const fn = js.substring(pos + 9, js.length - 5);
-        this.project = (await new Promise((r) => {
-          const get = (_id: string, data: string) => {
-            return r(JSON.parse(data));
-          };
-          eval(get.name + fn);
-        })) as Project;
+			log("Artwork page", project.id, project.hash_id);
+			this.storeView(project.id, true);
+		}
 
-        this.storeView(this.project.id);
-      }
+		private async navigated(_: string, first: boolean) {
+			await this.waitFor(() => {
+				if (Object.keys(this.projectsByHash).length) {
+					return Promise.resolve();
+				}
+				return Promise.reject();
+			});
+			await this.waitForRequests();
+			await this.hideProjectsOnPage();
 
-      if (!this.project) {
-        await new Promise((r) => (this.projectLoaded = r));
-      }
-      if (!this.project) {
-        log("Current project not set");
-        return;
-      }
+			if (this.currentPage === "artwork") {
+				this.handleArtworkPage(first);
+			}
+		}
 
-      log("Artwork page", this.project.id, this.project.hash_id);
-      const pictures = await this.waitFor(async () => {
-        const pics = document.querySelectorAll("picture");
-        if (pics.length) {
-          return Promise.resolve(pics);
-        } else {
-          return Promise.reject();
-        }
-      });
+		private async xhrSending(xhr: XMLHttpRequest2) {
+			if (artstation.blocklist.find((b) => xhr.url!.includes(b))) {
+				// Block pointless requests
+				return false;
+			}
 
-      // Force high res
-      for (const picture of pictures) {
-        const source = picture.querySelector("source[media*='1200']")!;
-        source.setAttribute("media", "(min-width: 0)");
-      }
+			let resolve: () => void;
+			let wait = new Promise<void>((r) => (resolve = r));
+			this.activeRequests.set(xhr, { wait, resolve: resolve! });
+			return true;
+		}
 
-      const loading = document.createElement("div");
-      Object.assign(loading.style, {
-        backgroundImage:
-          "url(http://samherbert.net/svg-loaders/svg-loaders/puff.svg)",
-        width: "80px",
-        height: "80px",
-        display: "flex",
-        alignItems: "center",
-        color: "lightskyblue",
-        fontWeight: "bold",
-        textAlign: "center",
-        lineHeight: "24px",
-        margin: "20px auto",
-        backgroundSize: "contain",
-      });
-      loading.textContent = `Loading... 0/${pictures.length}`;
-      const main = document.querySelector("main.artwork-container")!;
-      main.prepend(loading);
+		private async xhrLoaded(xhr: XMLHttpRequest2) {
+			const data = xhr.getResponseJSON();
 
-      let loadCount = 0;
-      const loaded = () => {
-        loading.textContent = `Loading... ${++loadCount}/${pictures.length}`;
-        if (+loadCount === pictures.length) {
-          loading.remove();
+			// Filter out viewed projects
+			if (artstation.isProjectResponse(data)) {
+				const projects = data.data;
+				const count = projects.length;
+				const existing = await this.hasViewed(
+					projects.map((proj) => {
+						this.projectsById[proj.id] = this.projectsByHash[
+							proj.hash_id
+						] = proj;
+						return proj.id;
+					})
+				);
+				data.data = projects.filter((p) => !existing.has(p.id));
+				xhr.setResponseJSON(data);
+				log(`Filtered ${count - data.data.length}/${count} projects`, xhr.url);
+			}
 
-          if (pictures.length > 1) {
-            const thumbs = document.createElement("div");
-            Object.assign(thumbs.style, {
-              display: "flex",
-              flexWrap: "wrap",
-              justifyContent: "center",
-            });
-            for (const picture of pictures) {
-              const img = picture.querySelector("img") as HTMLImageElement;
-              const thumb: HTMLImageElement = document.createElement("img");
-              Object.assign(thumb.style, {
-                width: "15%",
-                height: "auto",
-                objectFit: "contain",
-                marginRight: "5px",
-                cursor: "pointer",
-                maxHeight: "200px",
-                marginBottom: "10px",
-              });
-              thumb.onclick = () => {
-                picture.scrollIntoView();
-              };
-              thumb.src = img.src;
-              thumbs.appendChild(thumb);
-            }
-            main.prepend(thumbs);
-          }
-        }
-      };
+			// Resolve request block
+			const req = this.activeRequests.get(xhr)!;
+			this.activeRequests.delete(xhr);
+			req.resolve();
+		}
 
-      for (const picture of pictures) {
-        const img: HTMLImageElement = picture.querySelector("img")!;
-        if (!img.naturalWidth) {
-          img.onload = loaded;
-        } else {
-          loaded();
-        }
+		private async projectStored(ids: (string | number)[]) {
+			log("Project view broadcast recieved:", ids);
+			let hidden = 0;
+			for (const id of ids) {
+				const proj = await this.findProjectOnPage(+id);
+				if (proj) {
+					hidden++;
+					this.viewedProject(proj, false);
+				}
+			}
+			log("Found and updated", `${hidden}/${ids.length}`, "projects on page");
+		}
 
-        const assetId = picture.closest(".artwork")!.getAttribute("data-id");
-        const meta = JSON.stringify({ project: this.project, assetId });
-        const src = img.getAttribute("src");
-        const href = `${src}#id=${
-          this.project.id
-        }&metadata=${encodeURIComponent(meta)}`;
+		private async waitForRequests() {
+			while (this.activeRequests.size) {
+				log(
+					"Waiting for",
+					this.activeRequests.size,
+					"request(s) to complete..."
+				);
+				await Promise.all([...this.activeRequests.values()].map((r) => r.wait));
+			}
+			log("All requests completed");
+		}
 
-        const wrapper = document.createElement("a");
-        wrapper.href = href;
-        picture.parentNode!.insertBefore(wrapper, picture);
-        wrapper.appendChild(picture);
-      }
-    }
+		private static isProjectResponse(data: any): data is { data: Project[] } {
+			return (
+				data &&
+				data.data &&
+				data.data instanceof Array &&
+				data.data.length &&
+				"hide_as_adult" in data.data[0]
+			);
+		}
 
-    private async projectsViewed(ids: number[]) {
-      let hidden = 0;
-      for (const id of ids) {
-        const el = document.querySelector(`a[artstation-open-project="${id}"`);
-        if (el && el.parentElement!.style.display !== "none") {
-          hidden++;
-          el.parentElement!.style.filter = "sepia(1) blur(2px)";
-        }
-      }
-      if (hidden) {
-        log(`Hidden ${hidden} projects`);
-      }
-    }
+		private static isInViewport(elem: Element) {
+			const bounding = elem.getBoundingClientRect();
+			return (
+				bounding.top >= 0 &&
+				bounding.left >= 0 &&
+				bounding.bottom <=
+					(window.innerHeight || document.documentElement.clientHeight) &&
+				bounding.right <=
+					(window.innerWidth || document.documentElement.clientWidth)
+			);
+		}
+	}
 
-    private static isProjectResponse(data: any): data is { data: Project[] } {
-      return (
-        data &&
-        data.data &&
-        data.data instanceof Array &&
-        data.data.length &&
-        "hide_as_adult" in data.data[0]
-      );
-    }
-  }
-
-  log("Ready");
-  new artstation();
+	log("Ready!");
+	new artstation();
 });
