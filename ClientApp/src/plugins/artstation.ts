@@ -82,12 +82,17 @@ GM.app("artstation ✨", (log) => {
 		> = new Map();
 		private projectsById: Record<number, Project> = {};
 		private projectsByHash: Record<string, Project> = {};
+		private progress = { total: 0, current: 0 };
 
-		private get currentPage(): "list" | "artwork" | "other" {
+		private get currentPage(): "list" | "likes" | "artwork" | "other" {
 			const page = window.location.toString();
+			if (page.endsWith("/likes")) {
+				return "likes";
+			}
 			if (page.includes("/community/")) {
 				return "list";
-			} else if (page.includes("/artwork/")) {
+			}
+			if (page.includes("/artwork/")) {
 				return "artwork";
 			}
 
@@ -196,7 +201,7 @@ GM.app("artstation ✨", (log) => {
 				get parent() {
 					return (
 						(link!.closest(
-							".project, .more-artworks-item, .mosaic-element"
+							"projects-list-item, .project, .more-artworks-item, .mosaic-element"
 						) as HTMLElement) || link
 					);
 				},
@@ -397,6 +402,9 @@ GM.app("artstation ✨", (log) => {
 		}
 
 		private async navigated(_: string, first: boolean) {
+			this.progress.current = 0;
+			this.updateProgress(0, 0);
+
 			await this.waitFor(() => {
 				if (Object.keys(this.projectsByHash).length) {
 					return Promise.resolve();
@@ -430,6 +438,7 @@ GM.app("artstation ✨", (log) => {
 			if (artstation.isProjectResponse(data)) {
 				const projects = data.data;
 				const count = projects.length;
+				const first = projects[0];
 				const existing = await this.hasViewed(
 					projects.map((proj) => {
 						this.projectsById[proj.id] = this.projectsByHash[
@@ -438,15 +447,66 @@ GM.app("artstation ✨", (log) => {
 						return proj.id;
 					})
 				);
+
+				if (
+					(this.currentPage === "likes" && xhr.url!.includes("likes.json")) ||
+					(this.currentPage === "other" && xhr.url?.includes("projects.json"))
+				) {
+					this.updateProgress(
+						projects.length || data.total_count,
+						data.total_count
+					);
+				}
+
 				data.data = projects.filter((p) => !existing.has(p.id));
-				xhr.setResponseJSON(data);
 				log(`Filtered ${count - data.data.length}/${count} projects`, xhr.url);
+
+				if (!data.data.length && xhr.url!.includes("page=1")) {
+					data.data = [first];
+					first.hide_as_adult = true;
+				}
+				xhr.setResponseJSON(data);
 			}
 
 			// Resolve request block
 			const req = this.activeRequests.get(xhr)!;
 			this.activeRequests.delete(xhr);
 			req.resolve();
+		}
+
+		private scrollProgress: HTMLDivElement | null = null;
+		private async updateProgress(add: number, total: number) {
+			this.progress.current += add;
+			this.progress.total = total;
+
+			if (total === 0) {
+				if (this.scrollProgress) {
+					this.scrollProgress.remove();
+					this.scrollProgress = null;
+				}
+				return;
+			}
+
+			if (!this.scrollProgress) {
+				this.scrollProgress = this.createElement("div", {
+					style: {
+						zIndex: 99999,
+						position: "fixed",
+						top: 0,
+						left: 0,
+						background: "rgba(255, 255, 255, 0.5)",
+						width: "100vw",
+						height: "5px",
+					},
+					startOf: document.body,
+				});
+			}
+
+			const w = (
+				(this.progress.current / (this.progress.total || 1)) *
+				100
+			).toFixed(0);
+			this.scrollProgress.style.borderLeft = `${w}vw inset white`;
 		}
 
 		private async projectStored(ids: (string | number)[]) {
@@ -474,7 +534,9 @@ GM.app("artstation ✨", (log) => {
 			log("All requests completed");
 		}
 
-		private static isProjectResponse(data: any): data is { data: Project[] } {
+		private static isProjectResponse(
+			data: any
+		): data is { data: Project[]; total_count: number } {
 			return (
 				data &&
 				data.data &&
