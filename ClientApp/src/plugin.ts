@@ -8,6 +8,7 @@ interface XMLHttpRequest2 extends XMLHttpRequest {
 }
 
 const iMagePlugin = (() => {
+	const _windowId = window.location.toString() + "|" + Math.random();
 	const _EVENTS_ = Symbol();
 	const _xhr: typeof XMLHttpRequest = unsafeWindow.XMLHttpRequest;
 	let _listeners: {
@@ -190,7 +191,10 @@ const iMagePlugin = (() => {
 				let message: {
 					id: string;
 					data: any;
+					_source: string;
 				} = event.data;
+				if (message._source === _windowId) return;
+
 				for (const listener of this.listeners[message.id] || []) {
 					await listener.call(this, message.data);
 				}
@@ -219,7 +223,7 @@ const iMagePlugin = (() => {
 
 		protected broadcast<T>(eventId: string, data: T) {
 			const channel = new BroadcastChannel(this.constructor.name);
-			channel.postMessage({ id: eventId, data });
+			channel.postMessage({ id: eventId, data, _source: _windowId });
 			channel.close();
 		}
 
@@ -372,6 +376,55 @@ const iMagePlugin = (() => {
 					await new Promise((r) => setTimeout(r, 250));
 				}
 			}
+		}
+
+		protected createElement<K extends keyof HTMLElementTagNameMap>(
+			tagName: K,
+			opts?: {
+				style?: Record<string, string | number>;
+				text?: string;
+				attrs?: Record<string, string>;
+				props?: Partial<HTMLElementTagNameMap[K]>;
+				children?: Element[];
+			} & (
+				| { before?: Element }
+				| { after?: Element }
+				| { endOf?: Element }
+				| { startOf?: Element }
+			)
+		): HTMLElementTagNameMap[K] {
+			const el = document.createElement(tagName);
+			if (opts) {
+				if (opts.style) {
+					Object.assign(el.style, opts.style);
+				}
+				if (opts.text) {
+					el.textContent = opts.text;
+				}
+				if (opts.attrs) {
+					for (const attr in opts.attrs) {
+						el.setAttribute(attr, opts.attrs[attr]);
+					}
+				}
+				if (opts.props) {
+					Object.assign(el, opts.props);
+				}
+				if (opts.children) {
+					for (const c of opts.children) {
+						el.appendChild(c);
+					}
+				}
+				if ("before" in opts && opts.before) {
+					opts.before.before(el);
+				} else if ("after" in opts && opts.after) {
+					opts.after.after(el);
+				} else if ("startOf" in opts && opts.startOf) {
+					opts.startOf.prepend(el);
+				} else if ("endOf" in opts && opts.endOf) {
+					opts.endOf.append(el);
+				}
+			}
+			return el;
 		}
 
 		// public debug_logAllValues() {

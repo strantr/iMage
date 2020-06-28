@@ -131,7 +131,11 @@ GM.app("artstation ✨", (log) => {
 			}
 			if (next) {
 				if (!artstation.isInViewport(next)) {
-					next.scrollIntoView();
+					next.scrollIntoView({
+						behavior: "smooth",
+						block: "center",
+						inline: "center",
+					});
 				}
 			}
 		}
@@ -242,6 +246,100 @@ GM.app("artstation ✨", (log) => {
 		}
 
 		private async handleArtworkPage(first: boolean) {
+			const forceHighRes = (pictures: NodeListOf<HTMLPictureElement>) => {
+				for (const picture of pictures) {
+					const source = picture.querySelectorAll("source")!;
+					for (const s of source) {
+						s.remove();
+					}
+				}
+			};
+
+			const waitForLoad = async (
+				pictures: NodeListOf<HTMLPictureElement>,
+				main: HTMLElement
+			) => {
+				// Add loading indicator
+				let loaded: () => void;
+				const wait = new Promise((r) => (loaded = r));
+				const loading = this.createElement("div", {
+					style: {
+						backgroundImage:
+							"url(http://samherbert.net/svg-loaders/svg-loaders/puff.svg)",
+						width: "80px",
+						height: "80px",
+						display: "flex",
+						alignItems: "center",
+						color: "lightskyblue",
+						fontWeight: "bold",
+						textAlign: "center",
+						lineHeight: "24px",
+						margin: "20px auto",
+						backgroundSize: "contain",
+					},
+					text: `Loading... 0/${pictures.length}`,
+					startOf: main,
+				});
+
+				let loadCount = 0;
+				const onload = () => {
+					if (++loadCount === pictures.length) {
+						loaded();
+					} else {
+						loading.textContent = `Loading... 0/${pictures.length}`;
+					}
+				};
+
+				for (const picture of pictures) {
+					const img: HTMLImageElement = picture.querySelector("img")!;
+					if (img.complete) {
+						onload();
+					} else {
+						img.onload = onload;
+					}
+				}
+
+				await wait;
+				log("All images loaded");
+				loading.remove();
+			};
+
+			const createThumbs = (
+				pictures: NodeListOf<HTMLPictureElement>,
+				main: HTMLElement
+			) => {
+				this.createElement("div", {
+					style: {
+						display: "flex",
+						flexWrap: "wrap",
+						justifyContent: "center",
+					},
+					startOf: main,
+					children: [...pictures].map((p) =>
+						this.createElement("img", {
+							style: {
+								width: "15%",
+								height: "auto",
+								objectFit: "contain",
+								marginRight: "5px",
+								cursor: "pointer",
+								maxHeight: "200px",
+								marginBottom: "10px",
+							},
+							props: {
+								src: p.querySelector("img")!.src,
+								onclick: () =>
+									p.scrollIntoView({
+										behavior: "smooth",
+										block: "center",
+										inline: "center",
+									}),
+							},
+						})
+					),
+				});
+			};
+
 			let project: Project;
 			if (first) {
 				// On initial load the JSON for the current project is stored in a script tag
@@ -269,6 +367,33 @@ GM.app("artstation ✨", (log) => {
 
 			log("Artwork page", project.id, project.hash_id);
 			this.storeView(project.id, true);
+
+			const main = document.querySelector(
+				"main.artwork-container"
+			)! as HTMLElement;
+			const pictures = document.querySelectorAll("picture");
+			log("Found", pictures.length, "pictures on page");
+			forceHighRes(pictures);
+			await waitForLoad(pictures, main);
+			if (pictures.length > 1) {
+				createThumbs(pictures, main);
+			}
+
+			for (const picture of pictures) {
+				const img: HTMLImageElement = picture.querySelector("img")!;
+				const assetId = picture.closest(".artwork")!.getAttribute("data-id");
+				const meta = JSON.stringify({ project: project, assetId });
+				const src = img.getAttribute("src");
+				const href = `${src}#id=${project.id}&metadata=${encodeURIComponent(
+					meta
+				)}`;
+				this.createElement("a", {
+					props: {
+						href,
+					},
+					before: picture.parentElement!,
+				}).append(picture);
+			}
 		}
 
 		private async navigated(_: string, first: boolean) {
