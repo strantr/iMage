@@ -83,6 +83,7 @@ GM.app("artstation ✨", (log) => {
 		private projectsById: Record<number, Project> = {};
 		private projectsByHash: Record<string, Project> = {};
 		private progress = { total: 0, current: 0 };
+		private previousPage: string | null = null;
 
 		private get currentPage(): "list" | "likes" | "artwork" | "other" {
 			const page = window.location.toString();
@@ -142,6 +143,11 @@ GM.app("artstation ✨", (log) => {
 						inline: "center",
 					});
 				}
+			} else {
+				window.scrollTo({
+					behavior: "smooth",
+					top: 0,
+				});
 			}
 		}
 
@@ -402,8 +408,14 @@ GM.app("artstation ✨", (log) => {
 		}
 
 		private async navigated(_: string, first: boolean) {
-			this.progress.current = 0;
-			this.updateProgress(0, 0);
+			if (this.previousPage !== "artwork" || this.currentPage !== "other") {
+				// Maintain projects list from artwork page
+				this.progress.current = 0;
+				this.updateProgress(0, 0);
+			} else {
+				this.updateProgress(0, this.progress.total);
+			}
+			this.previousPage = this.currentPage;
 
 			await this.waitFor(() => {
 				if (Object.keys(this.projectsByHash).length) {
@@ -450,7 +462,8 @@ GM.app("artstation ✨", (log) => {
 
 				if (
 					(this.currentPage === "likes" && xhr.url!.includes("likes.json")) ||
-					(this.currentPage === "other" && xhr.url?.includes("projects.json"))
+					((this.currentPage === "artwork" || this.currentPage === "other") &&
+						xhr.url?.includes("projects.json"))
 				) {
 					this.updateProgress(
 						projects.length || data.total_count,
@@ -461,7 +474,11 @@ GM.app("artstation ✨", (log) => {
 				data.data = projects.filter((p) => !existing.has(p.id));
 				log(`Filtered ${count - data.data.length}/${count} projects`, xhr.url);
 
-				if (!data.data.length && xhr.url!.includes("page=1")) {
+				if (
+					this.currentPage !== "list" &&
+					!data.data.length &&
+					xhr.url!.includes("page=1")
+				) {
 					data.data = [first];
 					first.hide_as_adult = true;
 				}
@@ -506,7 +523,9 @@ GM.app("artstation ✨", (log) => {
 				(this.progress.current / (this.progress.total || 1)) *
 				100
 			).toFixed(0);
-			this.scrollProgress.style.borderLeft = `${w}vw inset white`;
+			this.scrollProgress.style.borderLeft = `${w}vw inset ${
+				w === "100" ? "dodgerblue" : "white"
+			}`;
 		}
 
 		private async projectStored(ids: (string | number)[]) {
