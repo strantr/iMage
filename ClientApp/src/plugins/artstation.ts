@@ -85,8 +85,16 @@ GM.app("artstation ✨", (log) => {
 		private progress = { total: 0, current: 0 };
 		private previousPage: string | null = null;
 
-		private get currentPage(): "list" | "likes" | "artwork" | "other" {
+		private get currentPage():
+			| "community"
+			| "list"
+			| "likes"
+			| "artwork"
+			| "other" {
 			const page = window.location.toString();
+			if (page.includes("/community/channels?sort_by=community")) {
+				return "community";
+			}
 			if (page.endsWith("/likes")) {
 				return "likes";
 			}
@@ -198,6 +206,7 @@ GM.app("artstation ✨", (log) => {
 			const hash = this.getHashFromUrl(link.getAttribute("href")!);
 			if (!(hash in this.projectsByHash)) {
 				console.error("Project not found by hash", hash, this.projectsByHash);
+				return null;
 			}
 			const id = this.projectsByHash[hash].id;
 			return {
@@ -225,7 +234,9 @@ GM.app("artstation ✨", (log) => {
 				}
 				projects = [
 					...document.querySelectorAll(artstation.artworkLinkSelector),
-				].map((el) => this.getProject(el as HTMLElement, false)!);
+				]
+					.map((el) => this.getProject(el as HTMLElement, false)!)
+					.filter((a) => a);
 			} while (waitForAny && !projects.length && ++step < 10);
 
 			return projects;
@@ -474,11 +485,7 @@ GM.app("artstation ✨", (log) => {
 				data.data = projects.filter((p) => !existing.has(p.id));
 				log(`Filtered ${count - data.data.length}/${count} projects`, xhr.url);
 
-				if (
-					this.currentPage !== "list" &&
-					!data.data.length &&
-					xhr.url!.includes("page=1")
-				) {
+				if (this.currentPage !== "community" && !data.data.length) {
 					data.data = [first];
 					first.hide_as_adult = true;
 				}
