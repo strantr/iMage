@@ -332,7 +332,7 @@ const iMagePlugin = (() => {
 			}
 		}
 
-		public addMenu(selector: string) {
+		public addMenu(selector: string | HTMLElement[]) {
 			if (!document.getElementById("iMageMenu")) {
 				const menu: HTMLMenuElement = document.createElement("menu");
 
@@ -356,7 +356,10 @@ const iMagePlugin = (() => {
 				menu.appendChild(item);
 				document.body.appendChild(menu);
 			}
-			const elements = [...document.querySelectorAll(selector)].filter((el) => {
+			const elements = (typeof selector === "string"
+				? [...document.querySelectorAll(selector)]
+				: selector
+			).filter((el) => {
 				return el.getAttribute("contextmenu") !== "iMageMenu";
 			});
 			for (const el of elements) {
@@ -365,6 +368,52 @@ const iMagePlugin = (() => {
 			if (elements.length) {
 				this.log("Added menu to", elements.length, "items");
 			}
+		}
+
+		protected infiniteScrolling(
+			getPageUrl: (page: number) => string,
+			minPage: number,
+			maxPage: number,
+			contentSelector: string,
+			filterNodes: (nodes: Node[]) => Promise<HTMLElement[]>
+		) {
+			let currentPage = minPage;
+			let loading = false;
+			const content = document.querySelector(contentSelector)!;
+
+			const next = async () => {
+				loading = true;
+				GM.debug(
+					"💻 InfiniteScroll",
+					"☁ Loading Page",
+					`(${currentPage}/${maxPage})`
+				);
+
+				if (currentPage === maxPage) {
+					window.removeEventListener("scroll", check);
+				}
+				const html = await (await fetch(getPageUrl(++currentPage))).text();
+				const doc = new DOMParser().parseFromString(html, "text/html");
+				const target = doc.querySelector(contentSelector)!;
+				for (const node of await filterNodes([...target.childNodes])) {
+					content.appendChild(node);
+				}
+				loading = false;
+				await check();
+			};
+
+			const check = async () => {
+				if (
+					!loading &&
+					document.body.scrollHeight - window.innerHeight - window.scrollY < 300
+				) {
+					await next();
+				}
+			};
+
+			new (window as any).ResizeObserver(check).observe(document.body);
+			window.addEventListener("scroll", check);
+			check();
 		}
 
 		protected async waitFor<T>(check: () => Promise<T>) {
@@ -425,6 +474,18 @@ const iMagePlugin = (() => {
 				}
 			}
 			return el;
+		}
+
+		protected static isInViewport(elem: Element) {
+			const bounding = elem.getBoundingClientRect();
+			return (
+				bounding.top >= 0 &&
+				bounding.left >= 0 &&
+				bounding.bottom <=
+					(window.innerHeight || document.documentElement.clientHeight) &&
+				bounding.right <=
+					(window.innerWidth || document.documentElement.clientWidth)
+			);
 		}
 
 		// public debug_logAllValues() {

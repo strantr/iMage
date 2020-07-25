@@ -218,6 +218,7 @@ declare const unsafeWindow: Window & Record<string, any>;
 					})
 					.join(" ");
 			}
+			GM.debug("addStyle", style.textContent);
 			document.body.appendChild(style);
 		},
 		app(id, cb) {

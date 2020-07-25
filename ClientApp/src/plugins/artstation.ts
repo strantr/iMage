@@ -11,7 +11,7 @@ interface ProjectElement {
 	hash: string;
 	link: HTMLElement;
 	parent: HTMLElement;
-}
+} 
 
 GM.log("artstation ✨", "Initialising");
 GM.app("artstation ✨", (log) => {
@@ -569,18 +569,6 @@ GM.app("artstation ✨", (log) => {
 				data.data instanceof Array &&
 				data.data.length &&
 				"hide_as_adult" in data.data[0]
-			);
-		}
-
-		private static isInViewport(elem: Element) {
-			const bounding = elem.getBoundingClientRect();
-			return (
-				bounding.top >= 0 &&
-				bounding.left >= 0 &&
-				bounding.bottom <=
-					(window.innerHeight || document.documentElement.clientHeight) &&
-				bounding.right <=
-					(window.innerWidth || document.documentElement.clientWidth)
 			);
 		}
 	}
